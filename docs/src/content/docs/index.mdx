@@ -1,0 +1,52 @@
+---
+title: Manual LLM Calculation
+description: A complete forward and backward pass through a transformer, calculated by hand
+template: splash
+hero:
+  tagline: Understanding transformers from first principles by manually calculating every step of training
+  actions:
+    - text: Start Calculating
+      link: /tokenization/
+      icon: right-arrow
+      variant: primary
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Introduction
+
+This is an educational project where we manually calculate a complete training step through a tiny transformer model:
+
+- **Model size:** 16-dimensional embeddings, 2 attention heads
+- **Input:** One short text sequence
+- **Process:** Tokenization → Embeddings → Attention → Feed-Forward → Loss → Gradients → Weight Updates
+
+By working through the calculations by hand (with help from Python for the arithmetic), you'll gain a deep understanding of how these models actually work at the mathematical level.
+
+## What We'll Calculate
+
+<CardGrid>
+  <Card title="Forward Pass" icon="forward">
+    Transform input text into predictions through embeddings, attention, and feed-forward layers
+  </Card>
+
+  <Card title="Backward Pass" icon="left-arrow">
+    Calculate gradients for every parameter using backpropagation
+  </Card>
+
+  <Card title="Optimization" icon="setting">
+    Update weights using the AdamW optimizer
+  </Card>
+</CardGrid>
+
+## Architecture
+
+We're using a simplified GPT-style decoder-only transformer:
+
+- **Vocabulary size:** Small (for illustration)
+- **d_model:** 16 (embedding dimension)
+- **Attention heads:** 2
+- **d_ff:** 64 (feed-forward hidden dimension)
+- **Layers:** 1 (to keep calculations manageable)
+
+Let's begin!
