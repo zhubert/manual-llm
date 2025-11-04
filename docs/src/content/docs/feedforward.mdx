@@ -1,6 +1,231 @@
 ---
-title: feedforward
-description: Coming soon
+title: "5. Feed-Forward Network"
+description: Position-wise transformations to add non-linearity and expressiveness
 ---
 
-Content in progress...
+Alright, multi-head attention is behind us. Now for something... simpler?
+
+The feed-forward network (FFN).
+
+Here's the deal: attention lets tokens talk to each other, which is great. But it's all linear transformations and weighted sums. We need some **non-linearity** in here—some way for the model to learn complex, non-linear relationships.
+
+That's where the FFN comes in.
+
+## What is the Feed-Forward Network?
+
+It's just a two-layer fully connected neural network. Applied independently to each position.
+
+That's it. No attention, no looking at other tokens. Just:
+1. **Expand** the representation to a higher dimension
+2. **Apply a non-linear activation** (GELU in our case)
+3. **Project** back down to the original dimension
+
+Think of it as giving each token's representation some "personal processing time" to transform itself in complex, non-linear ways.
+
+## The Architecture
+
+$$
+\text{FFN}(x) = W_2 \cdot \text{GELU}(W_1 \cdot x + b_1) + b_2
+$$
+
+Breaking it down:
+- **$W_1$**: Weights for the first layer, shape $[d_{ff}, d_{model}] = [64, 16]$ (expansion)
+- **$b_1$**: Bias for the first layer, shape $[d_{ff}] = [64]$
+- **GELU**: Gaussian Error Linear Unit activation (more on this in a sec)
+- **$W_2$**: Weights for the second layer, shape $[d_{model}, d_{ff}] = [16, 64]$ (projection)
+- **$b_2$**: Bias for the second layer, shape $[d_{model}] = [16]$
+
+**Wait, why expand to 64 dimensions?**
+
+Good question. The standard ratio in transformers is $d_{ff} = 4 \times d_{model}$. For us, that's $4 \times 16 = 64$.
+
+Why? Because the expansion gives the model more "room" to represent complex transformations. You expand into a high-dimensional space, apply the non-linearity, then compress back down. It's like unpacking a suitcase, rearranging everything, then packing it back up in a better configuration.
+
+## The GELU Activation
+
+We're using GELU (Gaussian Error Linear Unit) instead of the classic ReLU.
+
+**What's GELU?**
+
+$$
+\text{GELU}(x) = x \cdot \Phi(x)
+$$
+
+Where $\Phi(x)$ is the cumulative distribution function of the standard normal distribution.
+
+In practice, we use a fast approximation:
+
+$$
+\text{GELU}(x) \approx 0.5 \cdot x \cdot \left(1 + \tanh\left(\sqrt{\frac{2}{\pi}} \cdot (x + 0.044715 \cdot x^3)\right)\right)
+$$
+
+**Why GELU instead of ReLU?**
+
+ReLU just zeros out negative values: $\text{ReLU}(x) = \max(0, x)$. It's simple, but it's a hard cutoff.
+
+GELU is smoother. It still emphasizes positive values, but it doesn't completely kill negative ones—they get gently suppressed instead. This smoothness helps with gradient flow during training (though we won't see that benefit until backprop).
+
+Also, modern transformers (like BERT, GPT) use GELU, so... we're going with the crowd here.
+
+## Example Calculation: Position 0 (`<BOS>`)
+
+Let's walk through the FFN for position 0.
+
+### Input
+
+This is the output from multi-head attention:
+
+```python
+input[0] = [ 0.0016,  0.0317,  0.0027,  0.0241,  0.0082,  0.0150, -0.0055,  0.0230,
+             0.0080, -0.0248, -0.0242, -0.0061,  0.0011, -0.0391, -0.0154,  0.0160]
+```
+
+Shape: $[16]$
+
+### Step 1: First Linear Layer (Expansion)
+
+$$
+\text{hidden} = W_1 \cdot x + b_1
+$$
+
+**Shapes:**
+- $W_1$: $[64, 16]$
+- $x$: $[16]$
+- $b_1$: $[64]$
+- $\text{hidden}$: $[64]$
+
+We're expanding from 16 dimensions to 64.
+
+```python
+hidden[0] = (W1[0] @ input[0]) + b1[0]
+          = (sum of 16 multiplications) + bias
+          = 0.1243
+```
+
+The first 8 values of the hidden layer:
+
+```python
+hidden[:8] = [0.1243, 0.1767, 0.1915, 0.0007, 0.0420, 0.0368, -0.0122, 0.0612]
+```
+
+### Step 2: GELU Activation
+
+Now we apply GELU element-wise:
+
+```python
+activated[i] = GELU(hidden[i])
+```
+
+**Example:**
+
+```python
+GELU(0.1243) = 0.5 × 0.1243 × (1 + tanh(√(2/π) × (0.1243 + 0.044715 × 0.1243³)))
+             ≈ 0.0683
+```
+
+The first 8 activated values:
+
+```python
+activated[:8] = [0.0683, 0.1008, 0.1103, 0.0003, 0.0217, 0.0189, -0.0060, 0.0321]
+```
+
+Notice how the activation smoothly scales the values (not a hard cutoff like ReLU would do).
+
+### Step 3: Second Linear Layer (Projection)
+
+$$
+\text{output} = W_2 \cdot \text{activated} + b_2
+$$
+
+**Shapes:**
+- $W_2$: $[16, 64]$
+- $\text{activated}$: $[64]$
+- $b_2$: $[16]$
+- $\text{output}$: $[16]$
+
+We're projecting back down from 64 dimensions to 16.
+
+```python
+output[0] = [0.1457, -0.0356, -0.1188, 0.1040, -0.0096, -0.0899, -0.1237, 0.0068,
+             0.0871,  0.0351,  0.1449, 0.0032, -0.0206,  0.2061,  0.1985, 0.0127]
+```
+
+## Complete FFN Output
+
+Here's the output for all positions:
+
+```python
+ffn_output = [
+  [ 0.1457, -0.0356, -0.1188,  0.1040, -0.0096, -0.0899, -0.1237,  0.0068,  0.0871,  0.0351,  0.1449,  0.0032, -0.0206,  0.2061,  0.1985,  0.0127],  # pos 0: <BOS>
+  [ 0.1449, -0.0362, -0.1202,  0.1061, -0.0129, -0.0884, -0.1251,  0.0088,  0.0871,  0.0353,  0.1415,  0.0008, -0.0199,  0.2057,  0.2008,  0.0173],  # pos 1: I
+  [ 0.1445, -0.0365, -0.1203,  0.1040, -0.0141, -0.0869, -0.1263,  0.0110,  0.0858,  0.0357,  0.1385, -0.0000, -0.0192,  0.2050,  0.2010,  0.0175],  # pos 2: like
+  [ 0.1468, -0.0366, -0.1207,  0.1034, -0.0153, -0.0859, -0.1263,  0.0107,  0.0855,  0.0349,  0.1382, -0.0005, -0.0206,  0.2057,  0.2006,  0.0168],  # pos 3: transformers
+  [ 0.1473, -0.0369, -0.1211,  0.1033, -0.0154, -0.0853, -0.1272,  0.0095,  0.0849,  0.0337,  0.1374, -0.0008, -0.0214,  0.2063,  0.2019,  0.0164],  # pos 4: <EOS>
+]
+```
+
+**Shape:** $[5, 16]$ — same as the input, but transformed.
+
+## Before and After
+
+Let's compare position 1 (`I`) before and after the FFN:
+
+**Before FFN** (multi-head attention output):
+```python
+multi_head_output[1] = [ 0.0046,  0.0126,  0.0026,  0.0206,  0.0060, -0.0012,  0.0130,  0.0106,
+                         0.0180, -0.0151, -0.0121, -0.0024, -0.0141, -0.0227, -0.0079, -0.0074]
+```
+
+**After FFN:**
+```python
+ffn_output[1] = [ 0.1449, -0.0362, -0.1202,  0.1061, -0.0129, -0.0884, -0.1251,  0.0088,
+                  0.0871,  0.0353,  0.1415,  0.0008, -0.0199,  0.2057,  0.2008,  0.0173]
+```
+
+The values changed a lot. That's the non-linearity at work—the FFN is applying complex transformations that aren't just linear combinations.
+
+## What's the Point?
+
+Here's what the FFN accomplishes:
+
+1. **Non-linearity**: Attention is all linear operations. The FFN adds crucial non-linear transformations via GELU.
+
+2. **Position-wise processing**: Each token gets its own transformation, independent of others. Attention mixed information *between* tokens; FFN processes each token *individually*.
+
+3. **Expressiveness**: The expansion to 64 dimensions gives the model more capacity to represent complex functions. It's like having more workspace.
+
+4. **Feature transformation**: The FFN can learn to emphasize certain features, suppress others, create new combinations—all the things you need for a powerful model.
+
+In a trained model, the FFN learns things like "if this combination of features is present, amplify these other features" or "this pattern means suppress this dimension." Right now it's random, but the architecture is ready to learn.
+
+## Architecture So Far
+
+Let's trace where we are in the transformer block:
+
+1. ✅ **Embeddings** — Convert tokens to vectors
+2. ✅ **Q/K/V Projections** — Prepare for attention
+3. ✅ **Attention** — Let tokens communicate
+4. ✅ **Multi-head** — Combine attention heads
+5. ✅ **Feed-forward network** — Add non-linearity ← We are here
+
+Still to come:
+- **Residual connections** (adding skip connections)
+- **Layer normalization** (stabilizing activations)
+- **Output projection** (predicting next token)
+- **Loss calculation** (measuring how wrong we are)
+
+We're past the halfway point!
+
+## What's Next
+
+Actually, wait. We're missing something important.
+
+We just replaced the attention output with the FFN output. But that means we **lost** all the information from attention. That's... not great.
+
+Enter: **residual connections**.
+
+Instead of just using the FFN output, we're going to *add* it to the original attention output. That way we keep the old information while adding new transformations.
+
+Then we'll apply layer normalization to stabilize everything.
+
+Let's do that next.
