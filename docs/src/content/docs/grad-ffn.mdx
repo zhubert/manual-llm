@@ -1,6 +1,220 @@
 ---
-title: grad-ffn
-description: Coming soon
+title: "10. Gradients: FFN & Layer Norm"
+description: Backpropagating through the feed-forward network, residual connections, and layer normalization
 ---
 
-Content in progress...
+Alright. We're continuing our backward journey through the transformer.
+
+We've got gradients for the layer norm output. Now we need to backpropagate through:
+1. **Layer normalization** (mean/variance normalization)
+2. **Residual connection** (addition splits gradients)
+3. **Feed-forward network** (two linear layers + GELU)
+
+This is where things get interesting. Multiple operations, complex dependencies, gradient paths splitting and merging.
+
+Let's work through it.
+
+## The Architecture (Review)
+
+In the forward pass, we computed:
+
+```
+multi_head_output  →  FFN  →  ffn_output
+        ↓                         ↓
+        └────────(+)──────────→ residual_output  →  LayerNorm  →  layer_norm_output
+```
+
+Now we're going backward. We have $\frac{\partial L}{\partial \text{layer\_norm\_output}}$ and need $\frac{\partial L}{\partial \text{multi\_head\_output}}$.
+
+## Step 1: Backward Through Layer Normalization
+
+Layer normalization is mathematically complex to backpropagate through because every output depends on **all** inputs (due to the mean and variance calculations).
+
+The full gradient requires computing a Jacobian matrix and involves terms like:
+
+$$
+\frac{\partial \text{LayerNorm}(x)_i}{\partial x_j}
+$$
+
+For educational purposes, we'll use a **simplified approximation**: we pass the gradients through directly. This works reasonably well when $\gamma \approx 1$ and $\beta \approx 0$ (which they are in our case).
+
+In practice, deep learning frameworks handle this complexity automatically.
+
+**Simplified backward:**
+
+$$
+\frac{\partial L}{\partial \text{residual}} \approx \frac{\partial L}{\partial \text{layer\_norm\_output}}
+$$
+
+```python
+dL/dresidual[0] = [ 0.0142,  0.0479, -0.0057, -0.0316,  0.0278, -0.2635,  0.1148,  0.1195,
+                   -0.0411, -0.1391, -0.0216, -0.0314, -0.0667, -0.0314,  0.1478,  0.0244]
+```
+
+## Step 2: Backward Through Residual Connection
+
+The residual connection is beautifully simple.
+
+**Forward pass:**
+
+$$
+\text{residual} = \text{multi\_head\_output} + \text{ffn\_output}
+$$
+
+**Backward pass:**
+
+When you have addition ($z = x + y$), the gradient splits equally to both inputs:
+
+$$
+\frac{\partial L}{\partial x} = \frac{\partial L}{\partial z}
+$$
+
+$$
+\frac{\partial L}{\partial y} = \frac{\partial L}{\partial z}
+$$
+
+So the gradient from `residual` flows to **both** paths:
+
+```python
+dL/dmulti_head_output (from residual) = dL/dresidual
+dL/dffn_output                        = dL/dresidual
+```
+
+This is why residual connections are so powerful for training deep networks — gradients flow directly through them without attenuation.
+
+## Step 3: Backward Through FFN
+
+Now we backpropagate through the feed-forward network. Remember the forward pass:
+
+$$
+\text{FFN}(x) = W_2 \cdot \text{GELU}(W_1 \cdot x + b_1) + b_2
+$$
+
+We work backward through three stages:
+
+### Stage 3a: Backward Through Second Linear Layer
+
+**Forward:**
+
+$$
+\text{ffn\_output} = W_2 \cdot \text{activated} + b_2
+$$
+
+**Gradients:**
+
+$$
+\frac{\partial L}{\partial W_2} = \sum_{pos} \frac{\partial L}{\partial \text{ffn\_output}[pos]} \otimes \text{activated}[pos]^T
+$$
+
+$$
+\frac{\partial L}{\partial b_2} = \sum_{pos} \frac{\partial L}{\partial \text{ffn\_output}[pos]}
+$$
+
+$$
+\frac{\partial L}{\partial \text{activated}} = W_2^T \cdot \frac{\partial L}{\partial \text{ffn\_output}}
+$$
+
+Results (sample):
+
+```python
+dL/dW2[0] (first 8 values): [ 0.0076,  0.0110,  0.0116,  0.0003,  0.0010,  0.0025, -0.0001,  0.0035, ...]
+dL/db2: [ 0.1011,  0.2154,  0.1045,  0.0173,  0.0586, -0.3516, -0.0472,  0.0095, ...]
+```
+
+### Stage 3b: Backward Through GELU Activation
+
+GELU is non-linear, so its gradient isn't constant. The derivative is:
+
+$$
+\text{GELU}'(x) = \frac{\partial}{\partial x}\left[0.5 \cdot x \cdot (1 + \tanh(\sqrt{2/\pi} \cdot (x + 0.044715 \cdot x^3)))\right]
+$$
+
+This is complex, but it's differentiable everywhere (unlike ReLU, which has a discontinuity at 0).
+
+**Element-wise gradient:**
+
+$$
+\frac{\partial L}{\partial \text{hidden}[i]} = \frac{\partial L}{\partial \text{activated}[i]} \times \text{GELU}'(\text{hidden}[i])
+$$
+
+The GELU derivative is smooth and continuous, which helps with gradient flow.
+
+### Stage 3c: Backward Through First Linear Layer
+
+**Forward:**
+
+$$
+\text{hidden} = W_1 \cdot x + b_1
+$$
+
+**Gradients:**
+
+$$
+\frac{\partial L}{\partial W_1} = \sum_{pos} \frac{\partial L}{\partial \text{hidden}[pos]} \otimes x[pos]^T
+$$
+
+$$
+\frac{\partial L}{\partial b_1} = \sum_{pos} \frac{\partial L}{\partial \text{hidden}[pos]}
+$$
+
+$$
+\frac{\partial L}{\partial x} = W_1^T \cdot \frac{\partial L}{\partial \text{hidden}}
+$$
+
+This gives us gradients that flow back to the multi-head attention output:
+
+```python
+dL/dmulti_head_output (from FFN path): [-0.0027,  0.0054, -0.0056,  0.0351,  0.0221, -0.0151, ...]
+```
+
+## Step 4: Combine Gradients from Both Paths
+
+Remember, the gradient flows through **two paths** to `multi_head_output`:
+
+1. **Direct path** (residual): gradient passes through unchanged
+2. **FFN path**: gradient passes through W1, GELU, W2
+
+We **sum** these gradients:
+
+$$
+\frac{\partial L}{\partial \text{multi\_head\_output}} = \frac{\partial L}{\partial \text{multi\_head\_output}}_{residual} + \frac{\partial L}{\partial \text{multi\_head\_output}}_{FFN}
+$$
+
+```python
+dL/dmulti_head_output[0] (total): [ 0.0115,  0.0534, -0.0112,  0.0035,  0.0498, -0.2786,  0.1054,  0.1361,
+                                   -0.0330, -0.1396, -0.0088, -0.0366, -0.0591, -0.0190,  0.1660,  0.0240]
+```
+
+This is the gradient we'll use to backpropagate through multi-head attention.
+
+## What We've Computed
+
+Starting from $\frac{\partial L}{\partial \text{layer\_norm\_output}}$, we've computed:
+
+1. ✅ $\frac{\partial L}{\partial W_1}$, $\frac{\partial L}{\partial b_1}$ — gradients for first FFN layer
+2. ✅ $\frac{\partial L}{\partial W_2}$, $\frac{\partial L}{\partial b_2}$ — gradients for second FFN layer
+3. ✅ $\frac{\partial L}{\partial \text{multi\_head\_output}}$ — gradients to continue backprop
+
+## The Beauty of Residual Connections
+
+Notice how the residual connection allows gradients to flow **directly** from the output back to the attention layer, bypassing the FFN entirely.
+
+Without residuals, all gradients would have to flow through the FFN (and its non-linearity), potentially vanishing or exploding. With residuals, there's always a clean gradient path.
+
+This is why residual connections are essential for training deep networks. They provide gradient highways.
+
+## What's Next
+
+We've made it through the FFN and layer norm. Now comes the most complex part of backpropagation:
+
+**Multi-head attention.**
+
+Attention involves:
+- Query, key, value projections
+- Scaled dot-product attention (with softmax)
+- Multiple heads
+- Output projection
+
+Each of these needs gradients. It's intricate, but we'll work through it systematically.
+
+Let's go.

@@ -1,6 +1,138 @@
 ---
-title: grad-attention
-description: Coming soon
+title: "11. Gradients: Attention"
+description: Backpropagating through multi-head attention
 ---
 
-Content in progress...
+We're almost there.
+
+We've backpropagated through the output layer, layer norm, and FFN. Now we need to tackle the most complex part: **multi-head attention**.
+
+Attention is intricate. It involves:
+- Output projection ($W_o$)
+- Concatenation of heads
+- Attention mechanism (softmax, attention scores, $QK^T$)
+- Query/Key/Value projections ($W_q$, $W_k$, $W_v$)
+
+Each of these needs gradients. It's a lot.
+
+## The Challenge
+
+Attention gradients are mathematically complex because:
+
+1. **Softmax** creates dependencies between all positions
+2. **Matrix multiplications** create cross-dependencies between dimensions
+3. **Causal masking** affects gradient flow asymmetrically
+4. **Multiple heads** mean we're doing this several times in parallel
+
+In practice, deep learning frameworks (PyTorch, TensorFlow) handle all this automatically. The gradient computation is non-trivial, involving careful application of the chain rule through multiple interdependent operations.
+
+## Our Approach: Simplified Gradients
+
+For this educational project, we'll use a **simplified approximation** of attention gradients.
+
+Why? Because implementing full attention backpropagation by hand would require:
+- Backprop through softmax (involves Jacobian matrices)
+- Backprop through scaled dot-product (matrix calculus)
+- Handling the causal mask in gradients
+- Managing gradient flow through concatenation and splitting
+
+That's a lot of matrix calculus for what is fundamentally a pedagogical exercise.
+
+**Simplified backward through attention:**
+
+We backpropagate through the output projection $W_o$ to get gradients for the input embeddings:
+
+$$
+\frac{\partial L}{\partial X} = W_o^T \cdot \frac{\partial L}{\partial \text{multi\_head\_output}}
+$$
+
+This gives us:
+
+```python
+dL/dX[0] = [ 0.0547, -0.0030,  0.0955,  0.0046,  0.0462,  0.0432, -0.0774,  0.0050,
+            -0.0185, -0.0332, -0.0331, -0.0252,  0.0164, -0.0005,  0.0077, -0.0495]
+```
+
+These are the gradients flowing back to the input embeddings.
+
+## Attention Weight Gradients
+
+For the attention matrices ($W_q$, $W_k$, $W_v$, $W_o$), we'd compute gradients using outer products, similar to what we did for the FFN:
+
+$$
+\frac{\partial L}{\partial W_o} = \sum_{pos} \frac{\partial L}{\partial \text{output}[pos]} \otimes \text{concat}[pos]^T
+$$
+
+And similarly for $W_q$, $W_k$, and $W_v$.
+
+These gradients accumulate across all positions and all heads.
+
+## What We're Skipping
+
+In a full implementation, you'd also compute:
+
+1. **Gradients through attention scores**:
+   $$
+   \frac{\partial L}{\partial \text{scores}} = \frac{\partial L}{\partial \text{attention\_output}} \cdot V^T
+   $$
+
+2. **Gradients through softmax** (complex because each output depends on all inputs):
+   $$
+   \frac{\partial L}{\partial \text{scores\_pre\_softmax}} = \text{softmax\_backward}(\frac{\partial L}{\partial \text{scores}})
+   $$
+
+3. **Gradients through $QK^T$** (requires transpositions and careful indexing)
+
+4. **Gradients for queries and keys** from the scores
+
+5. **Handling the causal mask** (zeroing out gradients for masked positions)
+
+All of this is mathematically well-defined, but tedious to implement by hand.
+
+## The Practical Reality
+
+In real transformer training:
+- PyTorch's `nn.MultiheadAttention` handles all this automatically
+- Frameworks use optimized kernels (like FlashAttention) for efficiency
+- Gradients are computed in a single backward pass using autograd
+
+You don't write attention backprop by hand. You use tools that do it correctly and efficiently.
+
+## What We've Computed
+
+With our simplified approach, we've computed:
+
+1. ✅ $\frac{\partial L}{\partial X}$ — gradients flowing back to embeddings
+2. ✅ (Simplified) $\frac{\partial L}{\partial W_o}$ — gradients for output projection weights
+3. ✅ (Placeholder) Gradients for $W_q$, $W_k$, $W_v$
+
+This is enough to understand the flow of gradients through attention, even if we're not computing every intermediate step by hand.
+
+## The Takeaway
+
+Attention backpropagation is complex. Really complex.
+
+But the **principle** is the same as everywhere else: apply the chain rule, backpropagate through each operation, accumulate gradients.
+
+The math gets messy, but the process is systematic.
+
+In practice, you rely on frameworks to handle this correctly. What matters is understanding:
+- Gradients flow backward through the same operations as the forward pass
+- Each operation has a well-defined gradient
+- The chain rule connects everything
+
+You don't need to compute attention gradients by hand to use transformers effectively. But it's good to know they exist and that they're computable.
+
+## What's Next
+
+We've made it through attention. One final step remains:
+
+**Embeddings.**
+
+The gradients we just computed ($\frac{\partial L}{\partial X}$) tell us how the loss changes with respect to the input embeddings. Now we need to split these gradients between:
+- Token embeddings ($E_{token}$)
+- Position embeddings ($E_{pos}$)
+
+Then we'll have gradients for every single parameter in the model.
+
+Almost done.
