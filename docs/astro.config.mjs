@@ -4,7 +4,7 @@ import starlight from "@astrojs/starlight";
 // https://astro.build/config
 export default defineConfig({
   site: "https://www.zhubert.com",
-  base: import.meta.env.PROD ? "/the-worst-llm" : "/",
+  base: import.meta.env.PROD ? "/manual-llm" : "/",
   trailingSlash: "always",
   integrations: [
     starlight({
@@ -15,7 +15,7 @@ export default defineConfig({
         {
           icon: "github",
           label: "Github",
-          href: "https://github.com/zhubert/the-worst-llm",
+          href: "https://github.com/zhubert/manual-llm",
         },
       ],
       sidebar: [
