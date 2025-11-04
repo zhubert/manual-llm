@@ -15,13 +15,19 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## Introduction
 
-This is an educational project where we manually calculate a complete training step through a tiny transformer model:
+Ever wonder how transformers actually work under the hood? I mean really work, at the level of matrices and gradients and actual numbers?
 
-- **Model size:** 16-dimensional embeddings, 2 attention heads
+Me too.
+
+This is an educational project where we're going to manually calculate a complete training step through a tiny transformer model. And when I say "manually," I mean we're going to compute every single operation by hand (okay, with Python doing the arithmetic, because I'm not a masochist).
+
+Here's what we're working with:
+
+- **Model size:** 16-dimensional embeddings, 2 attention heads (tiny enough to be tractable)
 - **Input:** One short text sequence
 - **Process:** Tokenization → Embeddings → Attention → Feed-Forward → Loss → Gradients → Weight Updates
 
-By working through the calculations by hand (with help from Python for the arithmetic), you'll gain a deep understanding of how these models actually work at the mathematical level.
+By the end, you'll have seen every matrix multiplication, every softmax, every gradient calculation. The goal is to build a deep, visceral understanding of how these models work at the mathematical level.
 
 ## What We'll Calculate
 
@@ -41,7 +47,7 @@ By working through the calculations by hand (with help from Python for the arith
 
 ## Architecture
 
-We're using a simplified GPT-style decoder-only transformer:
+We're using a simplified GPT-style decoder-only transformer (the same architecture family as ChatGPT, just... way tinier):
 
 - **Vocabulary size:** Small (for illustration)
 - **d_model:** 16 (embedding dimension)
@@ -49,4 +55,6 @@ We're using a simplified GPT-style decoder-only transformer:
 - **d_ff:** 64 (feed-forward hidden dimension)
 - **Layers:** 1 (to keep calculations manageable)
 
-Let's begin!
+Look, I know. A real transformer has billions of parameters across dozens of layers. But the math is exactly the same whether you have 16 dimensions or 4096. We're just keeping things small enough that we can actually see what's happening.
+
+Ready? Let's dive in.

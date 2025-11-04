@@ -3,17 +3,19 @@ title: "2. QKV Projections"
 description: Transforming embeddings into Query, Key, and Value representations
 ---
 
-After obtaining our embedding matrix `X`, the next step in the transformer is to compute **Query (Q)**, **Key (K)**, and **Value (V)** projections. These are the fundamental building blocks of the attention mechanism.
+We've got our embedding matrix `X`. Now things get interesting.
+
+The next step is to compute **Query (Q)**, **Key (K)**, and **Value (V)** projections. These are the fundamental building blocks of the attention mechanism (and where a lot of the magic happens).
 
 ## What are Q, K, V?
 
-The attention mechanism allows the model to determine how much "attention" each token should pay to every other token. This is done through three different representations:
+The attention mechanism lets each token decide how much attention to pay to every other token in the sequence. Think of it like a database lookup, but fuzzy and learned:
 
 - **Query (Q)**: "What am I looking for?"
 - **Key (K)**: "What do I contain?"
-- **Value (V)**: "What information do I have?"
+- **Value (V)**: "What information do I have to offer?"
 
-Each token's embedding is projected into these three representations using learned weight matrices.
+We take each token's embedding and project it into these three different representations using learned weight matrices. Same input, three different views.
 
 ## Multi-Head Attention Structure
 
@@ -66,7 +68,7 @@ for head in range(NUM_HEADS):
 
 ## Matrix Multiplication Basics
 
-Before we compute Q, K, V, let's review **matrix multiplication** since it's the core operation we'll be using.
+Before we dive into the actual Q, K, V calculations, let's review **matrix multiplication**. It's the core operation we'll be using... basically everywhere in this project.
 
 :::note[The @ Symbol]
 The `@` symbol represents **matrix multiplication** (not dot product). In Python and NumPy, `A @ B` performs matrix multiplication between A and B. This is equivalent to `np.matmul(A, B)` or `np.dot(A, B)` for 2D matrices.
@@ -79,7 +81,7 @@ When we multiply two matrices `A @ B`:
 - **B** has shape `[n, p]` (n rows, p columns)
 - The result has shape `[m, p]` (m rows, p columns)
 
-**Key requirement:** The number of columns in A must equal the number of rows in B!
+**Key requirement:** The number of columns in A must equal the number of rows in B. If they don't match, you get an error (and confusion).
 
 **The operation:** To compute element `[i, j]` in the result:
 
@@ -280,18 +282,20 @@ V[1] = [
 
 ## Why Multiple Heads?
 
-Notice that Head 0 and Head 1 produce different Q, K, V representations for the same input. This is the power of multi-head attention:
+Notice that Head 0 and Head 1 produce completely different Q, K, V representations for the same input. This is the power of multi-head attention.
 
-- **Head 0** might learn to focus on syntactic relationships
-- **Head 1** might learn to focus on semantic relationships
+Different heads can learn to focus on different types of relationships:
 
-By having multiple heads, the model can attend to different types of relationships simultaneously. Later, we'll combine the outputs from both heads to get a richer representation.
+- **Head 0** might learn to focus on syntactic relationships (like subject-verb agreement)
+- **Head 1** might learn to focus on semantic relationships (like related concepts)
+
+It's like having multiple experts examining the same data from different perspectives. Later, we'll combine the outputs from both heads to get a richer, more nuanced representation.
 
 ## What's Next
 
-Now that we have Q, K, V for both heads, we can compute:
+Now that we have Q, K, V for both heads, we can compute the actual attention mechanism:
 1. **Attention scores**: How much should each token attend to every other token?
 2. **Attention weights**: Normalized scores (using softmax)
 3. **Attention output**: Weighted combination of value vectors
 
-Let's move on to computing attention scores!
+This is where the "attention" actually happens. Let's dive in.

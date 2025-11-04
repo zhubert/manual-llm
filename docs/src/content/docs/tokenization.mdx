@@ -3,7 +3,11 @@ title: "1. Tokenization & Embeddings"
 description: Converting text into numerical representations
 ---
 
-The first step in any language model is converting text into numbers that the model can process. This involves two stages: **tokenization** (breaking text into tokens) and **embedding** (converting tokens into vectors).
+Here's the thing about neural networks: they only understand numbers.
+
+Words, sentences, paragraphs? Meaningless. But vectors of floating-point numbers? Now we're talking.
+
+So the first step in any language model is converting text into numbers the model can actually process. This happens in two stages: **tokenization** (breaking text into tokens) and **embedding** (converting those tokens into vectors).
 
 ## Our Vocabulary
 
@@ -18,7 +22,7 @@ For this project, we're using a tiny vocabulary with just 6 tokens:
 | 4 | `like` | Content word |
 | 5 | `transformers` | Content word |
 
-In real language models, vocabularies contain thousands or tens of thousands of tokens (words, subwords, or characters). Our tiny vocabulary makes calculations manageable while still demonstrating the key concepts.
+In real language models, vocabularies contain thousands or tens of thousands of tokens (words, subwords, or characters). GPT-3, for instance, has 50,257 tokens. Ours has 6. This makes the calculations actually manageable while still demonstrating all the key concepts.
 
 ## Input Text
 
@@ -47,7 +51,9 @@ Our sequence has **length 5**.
 
 ## Language Modeling Task
 
-In a decoder-only transformer (like GPT), we predict the next token at each position using a **causal mask** (only looking at previous tokens):
+In a decoder-only transformer (like GPT), the game is simple: predict the next token.
+
+At each position, we look at all the previous tokens and try to guess what comes next. We use a **causal mask** to enforce this "no peeking at the future" rule:
 
 | Position | Input tokens | Predict |
 |----------|--------------|---------|
@@ -60,11 +66,13 @@ Position 4 (`<EOS>`) doesn't need to predict anything - it marks the end.
 
 ## Embeddings: Tokens to Vectors
 
-Now we need to convert each token ID into a vector. We use two types of embeddings:
+Okay, so we have token IDs. But remember, the model needs actual vectors—continuous representations it can do math with.
+
+We use two types of embeddings to create these vectors.
 
 ### 1. Token Embeddings
 
-Each token has an associated embedding vector. With `d_model = 16`, each token maps to a 16-dimensional vector.
+Each token gets its own embedding vector. With `d_model = 16`, that means each of our 6 tokens maps to a 16-dimensional vector.
 
 We have a **token embedding matrix** of shape `[vocab_size, d_model]` = `[6, 16]`:
 
@@ -107,7 +115,11 @@ E_token = [
 
 ### 2. Position Embeddings
 
-Since transformers don't have a built-in sense of order (unlike RNNs), we need to tell the model where each token is in the sequence. We use **learned position embeddings**.
+Here's a weird thing about transformers: they have no built-in sense of order.
+
+Unlike RNNs (which process sequences left-to-right) or CNNs (which have spatial structure), the attention mechanism treats the input like a bag of tokens. It has no idea that "I" comes before "like" unless we explicitly tell it.
+
+So we need position embeddings. We use **learned position embeddings** (there are other approaches like sinusoidal encoding, but learned embeddings work great).
 
 We have a **position embedding matrix** of shape `[max_seq_len, d_model]` = `[5, 16]`:
 
@@ -200,14 +212,16 @@ X = [
 ]
 ```
 
-**This matrix X is the input to our transformer block!**
+**This matrix X is the input to our transformer block.**
+
+Alright, we're ready to go.
 
 ## What's Next
 
-These embeddings `X` will be the input to our transformer block, where we'll compute:
-1. Query, Key, Value projections
-2. Self-attention scores
-3. Multi-head attention
-4. Feed-forward transformations
+These embeddings will flow through our transformer block, where the real magic happens:
+1. Query, Key, Value projections (splitting into attention heads)
+2. Self-attention scores (figuring out which tokens should attend to which)
+3. Multi-head attention (combining information from multiple attention heads)
+4. Feed-forward transformations (processing the attended representations)
 
-Let's move on to the QKV projections!
+Let's move on to the QKV projections.
