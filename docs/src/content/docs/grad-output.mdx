@@ -35,7 +35,48 @@ $$
 
 Where $\otimes$ denotes the outer product.
 
-Let's compute both.
+## What's an Outer Product?
+
+Before we dive into the calculations, let's clarify what the outer product ($\otimes$) actually means — because if you haven't seen it before, that symbol might look mysterious.
+
+**The outer product takes two vectors and produces a matrix.**
+
+Given:
+- Vector $a$ of shape $[m]$
+- Vector $b$ of shape $[n]$
+
+The outer product $a \otimes b$ produces a matrix of shape $[m, n]$ where:
+
+$$
+(a \otimes b)[i][j] = a[i] \times b[j]
+$$
+
+**Example:**
+
+```python
+a = [1, 2, 3]      # shape [3]
+b = [4, 5]         # shape [2]
+
+a ⊗ b = [[1×4, 1×5],    # = [[4, 5],
+         [2×4, 2×5],    #    [8, 10],
+         [3×4, 3×5]]    #    [12, 15]]
+```
+
+Each element of the matrix is just the product of one element from $a$ and one element from $b$. That's it.
+
+**In NumPy:** `np.outer(a, b)` computes this directly.
+
+**Why do we need it here?**
+
+In backpropagation through a linear layer, the weight gradient has to match the shape of the weights. Since $W_{lm}$ is $[6, 16]$, we need a $[6, 16]$ gradient matrix.
+
+We have:
+- Gradient from the loss w.r.t. logits: shape $[6]$ (one value per vocab item)
+- Input that was used in forward pass: shape $[16]$ (the hidden state)
+
+The outer product combines these into a $[6, 16]$ matrix — exactly what we need!
+
+Let's see how this works in practice.
 
 ## Step 1: Gradients for $W_{lm}$
 
