@@ -1,0 +1,7 @@
+[project]
+name = "long-hand-llm"
+version = "0.1.0"
+description = "Manual calculation of a complete LLM training step"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []

@@ -27,3 +27,10 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+
+# direnv
+.direnv/
+
+# Generated data files
+data/*.npz
+data/*.pkl
