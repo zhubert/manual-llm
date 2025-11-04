@@ -1,6 +1,189 @@
 ---
-title: grad-output
-description: Coming soon
+title: "9. Gradients: Output Layer"
+description: Backpropagating through the language modeling head
 ---
 
-Content in progress...
+Okay, we've got gradients for the logits. But we can't update logits directly — they're computed from the hidden states via the language modeling head.
+
+Remember the forward pass:
+
+$$
+\text{logits} = W_{lm} \cdot h
+$$
+
+Where:
+- $W_{lm}$: language modeling head weights, shape $[6, 16]$ (vocab × d_model)
+- $h$: hidden states from layer norm, shape $[16]$
+
+Now we need to backpropagate through this linear layer to get:
+1. Gradients for $W_{lm}$ (so we can update these weights)
+2. Gradients for $h$ (so we can continue backpropagating)
+
+## The Chain Rule
+
+We have $\frac{\partial L}{\partial \text{logits}}$ from the previous step.
+
+By the chain rule:
+
+$$
+\frac{\partial L}{\partial W_{lm}} = \frac{\partial L}{\partial \text{logits}} \otimes h^T
+$$
+
+$$
+\frac{\partial L}{\partial h} = W_{lm}^T \cdot \frac{\partial L}{\partial \text{logits}}
+$$
+
+Where $\otimes$ denotes the outer product.
+
+Let's compute both.
+
+## Step 1: Gradients for $W_{lm}$
+
+For a linear layer $y = W \cdot x$, the gradient w.r.t. $W$ is:
+
+$$
+\frac{\partial L}{\partial W} = \frac{\partial L}{\partial y} \otimes x^T
+$$
+
+This is an **outer product**: we take the gradient vector $\frac{\partial L}{\partial y}$ (shape $[6]$) and the input vector $x$ (shape $[16]$), and compute their outer product to get a $[6, 16]$ matrix.
+
+**Why outer product?**
+
+Each element $W[i][j]$ affects the output as $logits[i] += W[i][j] \times h[j]$.
+
+So $\frac{\partial logits[i]}{\partial W[i][j]} = h[j]$.
+
+By the chain rule:
+
+$$
+\frac{\partial L}{\partial W[i][j]} = \frac{\partial L}{\partial logits[i]} \times h[j]
+$$
+
+That's exactly the outer product of the two vectors.
+
+### Example: Position 0
+
+We have:
+- $\frac{\partial L}{\partial \text{logits}[0]} = [0.1785, 0.2007, 0.1759, -0.8746, 0.1563, 0.1632]$
+- $h[0] = [1.1931, -0.4156, -1.6076, 0.9884, ...]$ (hidden state from layer norm)
+
+Compute outer product (just showing first element):
+
+$$
+\frac{\partial L}{\partial W_{lm}[0][0]} = 0.1785 \times 1.1931 = 0.2129
+$$
+
+The full gradient contribution from position 0 is a $[6, 16]$ matrix.
+
+### Accumulating Across Positions
+
+We have 4 positions with targets (positions 0-3). Each contributes a gradient to $W_{lm}$.
+
+We **sum** these contributions (this is standard for batched gradient computation):
+
+$$
+\frac{\partial L}{\partial W_{lm}} = \sum_{pos} \frac{\partial L}{\partial \text{logits}[pos]} \otimes h[pos]^T
+$$
+
+After accumulating all 4 positions, here's a sample of the gradient (first 3 rows, first 8 columns):
+
+```python
+dL/dW_lm:
+  [ 0.8476, -0.3709, -1.1463,  0.5840, -0.2758, -0.9090, -1.1320, -0.1162, ...]  # row 0 (<PAD>)
+  [ 0.9373, -0.4098, -1.2686,  0.6455, -0.3040, -1.0055, -1.2527, -0.1278, ...]  # row 1 (<BOS>)
+  [-0.3479,  0.1282,  0.4241, -0.0465,  0.1565,  0.3745,  0.4198,  0.1607, ...]  # row 2 (<EOS>)
+```
+
+**Shape:** $[6, 16]$ — same as $W_{lm}$.
+
+These gradients tell us how to adjust each weight in the LM head to reduce the loss.
+
+## Step 2: Gradients for Hidden States
+
+Now we need to backpropagate the gradient to the hidden states $h$ (the layer norm output).
+
+For a linear layer $y = W \cdot x$, the gradient w.r.t. $x$ is:
+
+$$
+\frac{\partial L}{\partial x} = W^T \cdot \frac{\partial L}{\partial y}
+$$
+
+This is standard backpropagation through a linear layer. We multiply the upstream gradient by the **transpose** of the weight matrix.
+
+### Example: Position 0
+
+We have:
+- $\frac{\partial L}{\partial \text{logits}[0]} = [0.1785, 0.2007, 0.1759, -0.8746, 0.1563, 0.1632]$ (shape $[6]$)
+- $W_{lm}$: shape $[6, 16]$
+
+Compute:
+
+$$
+\frac{\partial L}{\partial h[0]} = W_{lm}^T \cdot \frac{\partial L}{\partial \text{logits}[0]}
+$$
+
+**Shape:** $[16, 6] \times [6] = [16]$
+
+Result:
+
+```python
+dL/dh[0] = [ 0.0142,  0.0479, -0.0057, -0.0316,  0.0278, -0.2635,  0.1148,  0.1195,
+            -0.0411, -0.1391, -0.0216, -0.0314, -0.0667, -0.0314,  0.1478,  0.0244]
+```
+
+Each element is computed as:
+
+$$
+\frac{\partial L}{\partial h[0][j]} = \sum_{i=0}^{5} W_{lm}[i][j] \times \frac{\partial L}{\partial \text{logits}[0][i]}
+$$
+
+For example:
+
+$$
+\frac{\partial L}{\partial h[0][0]} = W_{lm}[0][0] \times 0.1785 + W_{lm}[1][0] \times 0.2007 + ... + W_{lm}[5][0] \times 0.1632 = 0.0142
+$$
+
+### All Hidden State Gradients
+
+Here are the gradients for all positions:
+
+```python
+dL_dlayer_norm_output = [
+  [ 0.0142,  0.0479, -0.0057, -0.0316,  0.0278, -0.2635,  0.1148,  0.1195, -0.0411, -0.1391, -0.0216, -0.0314, -0.0667, -0.0314,  0.1478,  0.0244],  # pos 0
+  [-0.1458,  0.1207, -0.0569, -0.0067,  0.0345, -0.1039, -0.0244, -0.2245, -0.0272,  0.0642,  0.0857,  0.1368, -0.0198,  0.0167,  0.0128, -0.1037],  # pos 1
+  [ 0.0217,  0.0078,  0.1297,  0.1252,  0.0599, -0.0742, -0.0856,  0.0090,  0.0090, -0.0136, -0.0778, -0.0352,  0.0475,  0.0597, -0.0829, -0.0679],  # pos 2
+  [ 0.2109,  0.0390,  0.0374, -0.0697, -0.0635,  0.0900, -0.0520,  0.1054,  0.0435,  0.0339,  0.0195, -0.0266,  0.0114, -0.0754, -0.0595, -0.0786],  # pos 3
+]
+```
+
+These gradients tell us how the loss changes with respect to the layer norm output. They'll be used to continue backpropagating through layer norm, FFN, attention, and embeddings.
+
+## What We've Accomplished
+
+Starting from $\frac{\partial L}{\partial \text{logits}}$, we've computed:
+
+1. ✅ $\frac{\partial L}{\partial W_{lm}}$ — gradients for the LM head weights (so we can update them during optimization)
+2. ✅ $\frac{\partial L}{\partial h}$ — gradients for the hidden states (so we can continue backpropagating)
+
+## Intuition: What Do These Gradients Mean?
+
+The gradients for $W_{lm}$ tell us how to adjust the output projection weights. Looking at row 2 (token `<EOS>`):
+
+```python
+dL/dW_lm[2] = [-0.3479,  0.1282,  0.4241, -0.0465, ...]
+```
+
+These are relatively small, which makes sense — we're trying to predict tokens other than `<EOS>` at most positions. The model isn't incorrectly predicting `<EOS>` too often, so the gradients are modest.
+
+The gradients for the hidden states are the bridge to the rest of the model. They tell layer norm: "here's how you need to adjust your output to reduce the loss." Layer norm will then pass these gradients back to the FFN, which will pass them to attention, and so on.
+
+## What's Next
+
+We've backpropagated through the output projection. Now we need to continue backward through:
+
+1. **Layer normalization** (with residual connections — this gets tricky)
+2. **Feed-forward network** (two linear layers + GELU activation)
+3. **Multi-head attention** (the most complex part)
+4. **Embeddings** (finally!)
+
+Let's keep going.

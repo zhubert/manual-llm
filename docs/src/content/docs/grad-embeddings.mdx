@@ -1,6 +1,141 @@
 ---
-title: grad-embeddings
-description: Coming soon
+title: "12. Gradients: Embeddings"
+description: The final backward pass step - gradients for token and position embeddings
 ---
 
-Content in progress...
+This is it. The final step of backpropagation.
+
+We've computed gradients all the way from the loss, through the output layer, through layer norm and FFN, through attention, and now we're at the very beginning: the **embeddings**.
+
+## The Setup
+
+Remember how we created the input to the transformer?
+
+$$
+X[pos] = E_{token}[\text{token}[pos]] + E_{pos}[pos]
+$$
+
+Each position's embedding is the **sum** of:
+- A token embedding (which token is it?)
+- A position embedding (where is it in the sequence?)
+
+We have gradients $\frac{\partial L}{\partial X}$ from the previous step. Now we need to split these between token and position embeddings.
+
+## Backward Through Addition
+
+This is beautifully simple.
+
+When you have $z = x + y$, the gradient distributes:
+
+$$
+\frac{\partial L}{\partial x} = \frac{\partial L}{\partial z}
+$$
+
+$$
+\frac{\partial L}{\partial y} = \frac{\partial L}{\partial z}
+$$
+
+So:
+
+$$
+\frac{\partial L}{\partial E_{token}} = \frac{\partial L}{\partial X}
+$$
+
+$$
+\frac{\partial L}{\partial E_{pos}} = \frac{\partial L}{\partial X}
+$$
+
+Both get the same gradient. Addition is a gradient splitter.
+
+## Position Embedding Gradients
+
+Position embeddings are straightforward. Each position has its own embedding, and each position gets its own gradient.
+
+```python
+dL/dE_pos[0] = dL/dX[0]  # Position 0's gradient
+dL/dE_pos[1] = dL/dX[1]  # Position 1's gradient
+...
+```
+
+Results:
+
+```python
+dL/dE_pos[0]: [ 0.0547, -0.0030,  0.0955,  0.0046,  0.0462,  0.0432, -0.0774,  0.0050,
+               -0.0185, -0.0332, -0.0331, -0.0252,  0.0164, -0.0005,  0.0077, -0.0495]
+dL/dE_pos[1]: [ 0.0576,  0.0350, -0.0153,  0.0391,  0.0039, -0.0326, -0.0034,  0.0362,
+               -0.0160,  0.0306,  0.0001, -0.0186, -0.0236,  0.0054, -0.0757, -0.0197]
+dL/dE_pos[2]: [-0.0679, -0.0172,  0.0100,  0.0264, -0.0292, -0.0133,  0.0142, -0.0302,
+                0.0332, -0.0015, -0.0157, -0.0030,  0.0584, -0.0070, -0.0435,  0.0123]
+...
+```
+
+Each position embedding gets its own gradient vector.
+
+## Token Embedding Gradients
+
+Token embeddings are slightly more interesting.
+
+Multiple positions might use the **same token**. For example, if the word "the" appears three times in a sequence, all three positions share the same token embedding.
+
+So we **accumulate** gradients for each token:
+
+$$
+\frac{\partial L}{\partial E_{token}[i]} = \sum_{\{pos : \text{token}[pos] = i\}} \frac{\partial L}{\partial X[pos]}
+$$
+
+In our sequence `[<BOS>, I, like, transformers, <EOS>]`, each token appears once, so there's no accumulation. But if `I` appeared twice, we'd sum both gradients.
+
+Results:
+
+```python
+dL/dE_token[0] (<PAD>):         [0.0, 0.0, 0.0, ...]  # Never used → no gradient
+dL/dE_token[1] (<BOS>):         [ 0.0547, -0.0030,  0.0955,  0.0046, ...]  # Position 0
+dL/dE_token[2] (<EOS>):         [0.0, 0.0, 0.0, ...]  # Position 4 (no target) → no gradient
+dL/dE_token[3] (I):             [ 0.0576,  0.0350, -0.0153,  0.0391, ...]  # Position 1
+dL/dE_token[4] (like):          [-0.0679, -0.0172,  0.0100,  0.0264, ...]  # Position 2
+dL/dE_token[5] (transformers):  [gradient from position 3...]
+```
+
+Notice `<PAD>` has zero gradient because it was never used. `<EOS>` also has zero gradient because position 4 doesn't contribute to the loss (we don't predict after `<EOS>`).
+
+## Why This Matters
+
+Embedding gradients directly update how tokens and positions are represented.
+
+If the model is consistently making errors when it sees the token `I`, the gradient for `E_{token}[I]` will be large, pushing that embedding to change significantly.
+
+If errors are evenly distributed across positions, all position embeddings will get similar updates.
+
+This is how embeddings **learn** to capture meaning — through gradient descent, they adjust to minimize the loss.
+
+## Backpropagation: Complete
+
+We've done it.
+
+We've computed gradients for **every single parameter** in the model:
+
+1. ✅ **Token embeddings** ($E_{token}$) — gradients computed
+2. ✅ **Position embeddings** ($E_{pos}$) — gradients computed
+3. ✅ **Attention weights** ($W_q$, $W_k$, $W_v$, $W_o$) — gradients computed
+4. ✅ **Feed-forward weights** ($W_1$, $b_1$, $W_2$, $b_2$) — gradients computed
+5. ✅ **Layer norm parameters** ($\gamma$, $\beta$) — gradients computed (simplified)
+6. ✅ **Language modeling head** ($W_{lm}$) — gradients computed
+
+**The backward pass is complete.**
+
+We started from a loss of 1.865 (roughly random), computed how every parameter contributed to that loss, and now we have gradients telling us how to adjust each parameter to improve.
+
+## What's Next: Optimization
+
+Having gradients is great. But we still need to **use** them to update the weights.
+
+That's where optimization comes in. Specifically, **AdamW** — a sophisticated optimizer that:
+- Adapts learning rates per parameter
+- Uses momentum to smooth updates
+- Applies weight decay for regularization
+
+We'll take all these gradients and use AdamW to compute the actual weight updates.
+
+Then we'll have completed one full training step: forward pass, backward pass, optimization.
+
+Let's finish this.

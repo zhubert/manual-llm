@@ -1,6 +1,268 @@
 ---
-title: layer-norm
-description: Coming soon
+title: "6. Layer Normalization"
+description: Stabilizing activations and adding residual connections
 ---
 
-Content in progress...
+Okay. We've got our feed-forward network output. Are we done?
+
+Not quite.
+
+See, we just **replaced** the attention output with the FFN output. That means we lost all the information from attention. All that careful work computing Q, K, V, attention scores, multi-head combinations... gone.
+
+That's not ideal.
+
+Plus, deep neural networks have this annoying tendency where activations can grow or shrink out of control as you stack more layers. Small errors compound, gradients explode or vanish, and training becomes a nightmare.
+
+Two techniques solve these problems: **residual connections** and **layer normalization**.
+
+Let's fix both.
+
+## The Problem: Information Loss
+
+Look at what we just did:
+
+1. Started with embeddings
+2. Applied multi-head attention → got attention output
+3. Applied feed-forward network → got FFN output
+4. Used the FFN output, **throwing away** the attention output
+
+But the attention output contained useful information! It had context from other tokens, patterns learned by the attention heads, relationships between words.
+
+By replacing it, we lost all that.
+
+## Solution 1: Residual Connections
+
+The fix is beautifully simple: **add** the FFN output to the attention output instead of replacing it.
+
+$$
+\text{residual} = \text{attention\_output} + \text{FFN}(\text{attention\_output})
+$$
+
+This is called a **residual connection** (or skip connection). It comes from ResNet, where it revolutionized image recognition by allowing much deeper networks.
+
+The idea: Let the FFN learn the **change** to make, not the entire new representation. The original information flows through unchanged, and the FFN adds refinements on top.
+
+Benefits:
+- **No information loss** — original attention output is preserved
+- **Easier learning** — the FFN only needs to learn deltas, not full transformations
+- **Better gradients** — during backprop, gradients can flow directly through the residual path
+
+## Solution 2: Layer Normalization
+
+Even with residual connections, activations can drift over time. One dimension might grow huge, another shrink to near-zero. This makes training unstable.
+
+**Layer normalization** solves this by normalizing each position's activations to have:
+- Mean = 0
+- Variance = 1
+
+Then it applies learned scale ($\gamma$) and shift ($\beta$) parameters to restore expressiveness.
+
+The formula:
+
+$$
+\text{LayerNorm}(x) = \gamma \odot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta
+$$
+
+Where:
+- $\mu$ = mean of $x$
+- $\sigma^2$ = variance of $x$
+- $\epsilon$ = small constant for numerical stability (we use $10^{-5}$)
+- $\gamma, \beta$ = learned parameters (initialized to 1.0 and 0.0)
+
+## Step-by-Step Calculation
+
+Let's walk through both operations for position 0 (`<BOS>`).
+
+### Input: Attention Output and FFN Output
+
+From the previous steps:
+
+```python
+multi_head_output[0] = [ 0.0016,  0.0317,  0.0027,  0.0241,  0.0082,  0.0150,
+                        -0.0055,  0.0230,  0.0080, -0.0248, -0.0242, -0.0061,
+                         0.0011, -0.0391, -0.0154,  0.0160]
+
+ffn_output[0] =        [ 0.1457, -0.0356, -0.1188,  0.1040, -0.0096, -0.0899,
+                        -0.1237,  0.0068,  0.0871,  0.0351,  0.1449,  0.0032,
+                        -0.0206,  0.2061,  0.1985,  0.0127]
+```
+
+### Step 1: Add Residual Connection
+
+Just add them element-wise:
+
+```python
+residual[0] = multi_head_output[0] + ffn_output[0]
+            = [ 0.1474, -0.0039, -0.1161,  0.1281, -0.0014, -0.0749,
+               -0.1292,  0.0298,  0.0951,  0.0102,  0.1207, -0.0029,
+               -0.0195,  0.1670,  0.1832,  0.0287]
+```
+
+**Example for dimension 0:**
+```python
+0.0016 + 0.1457 = 0.1474
+```
+
+Simple. We've preserved the attention information while adding the FFN transformations.
+
+### Step 2: Compute Mean
+
+$$
+\mu = \frac{1}{d_{model}} \sum_{i=0}^{15} x_i
+$$
+
+For our 16-dimensional vector:
+
+```python
+μ = (0.1474 + (-0.0039) + ... + 0.0287) / 16
+  = 0.035146
+```
+
+### Step 3: Compute Variance
+
+$$
+\sigma^2 = \frac{1}{d_{model}} \sum_{i=0}^{15} (x_i - \mu)^2
+$$
+
+```python
+σ² = ((0.1474 - 0.035146)² + (-0.0039 - 0.035146)² + ... + (0.0287 - 0.035146)²) / 16
+   = 0.008837
+```
+
+### Step 4: Normalize
+
+$$
+x_{norm} = \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}}
+$$
+
+```python
+σ = √(0.008837 + 0.00001) = 0.094056
+
+x_norm[0] = (0.1474 - 0.035146) / 0.094056 = 1.1931
+x_norm[1] = (-0.0039 - 0.035146) / 0.094056 = -0.4156
+...
+```
+
+Full normalized vector:
+
+```python
+x_norm = [ 1.1931, -0.4156, -1.6076,  0.9884, -0.3888, -1.1695,
+          -1.7469, -0.0571,  0.6370, -0.2649,  0.9100, -0.4046,
+          -0.5807,  1.4016,  1.5738, -0.0682]
+```
+
+Notice how the values are now centered around 0 with roughly equal spread. No dimension dominates.
+
+### Step 5: Scale and Shift
+
+$$
+y = \gamma \odot x_{norm} + \beta
+$$
+
+Our parameters are initialized to $\gamma = 1.0$ and $\beta = 0.0$ for all dimensions, so this step doesn't change anything yet. In a trained model, these would be learned values that restore the model's expressive power.
+
+```python
+output = 1.0 × x_norm + 0.0 = x_norm
+```
+
+## Complete Layer Norm Output
+
+Here's the output for all positions after residual + layer norm:
+
+```python
+layer_norm_output = [
+  [ 1.1931, -0.4156, -1.6076,  0.9884, -0.3888, -1.1695, -1.7469, -0.0571,  0.6370, -0.2649,  0.9100, -0.4046, -0.5807,  1.4016,  1.5738, -0.0682],  # pos 0: <BOS>
+  [ 1.1689, -0.5891, -1.5434,  0.9368, -0.4201, -1.2595, -1.4878, -0.1522,  0.7169, -0.1439,  0.9645, -0.3657, -0.6948,  1.5090,  1.6095, -0.2489],  # pos 1: I
+  [ 1.1233, -0.5428, -1.6112,  0.6726, -0.2799, -1.3065, -1.4687, -0.1520,  0.7975, -0.1875,  1.1992, -0.3978, -0.5849,  1.4502,  1.6114, -0.3230],  # pos 2: like
+  [ 1.1775, -0.4915, -1.5464,  0.6190, -0.4261, -1.2644, -1.5280, -0.2738,  0.6837, -0.1704,  1.1311, -0.2891, -0.4714,  1.6433,  1.5733, -0.3669],  # pos 3: transformers
+  [ 1.1533, -0.5398, -1.5657,  0.6373, -0.4153, -1.1828, -1.5963, -0.2841,  0.6348, -0.1253,  1.0780, -0.2648, -0.4223,  1.6760,  1.5900, -0.3730],  # pos 4: <EOS>
+]
+```
+
+**Shape:** $[5, 16]$ — same as always.
+
+## Verification: Did It Work?
+
+Let's check that layer normalization actually did what it promised. Each position should now have:
+- Mean ≈ 0
+- Variance ≈ 1
+
+```python
+Position 0 (<BOS>):         mean = -0.000000, variance = 0.998870
+Position 1 (I):             mean = -0.000000, variance = 0.998969
+Position 2 (like):          mean = -0.000000, variance = 0.998990
+Position 3 (transformers):  mean = -0.000000, variance = 0.999038
+Position 4 (<EOS>):         mean =  0.000000, variance = 0.999048
+```
+
+Perfect. Mean is essentially zero, variance is essentially 1. (The tiny difference from 1.0 is because we divide by $N$ instead of $N-1$ in the variance formula — a detail that doesn't matter much.)
+
+## Before and After
+
+Let's compare position 1 (`I`) before and after layer normalization:
+
+**Before (residual output):**
+```python
+residual[1] = [ 0.1495, -0.0236, -0.1176,  0.1267, -0.0069, -0.0896, -0.1121,  0.0194,
+                0.1051,  0.0202,  0.1294, -0.0017, -0.0341,  0.1830,  0.2016,  0.0099]
+```
+
+**After (layer norm):**
+```python
+layer_norm_output[1] = [ 1.1689, -0.5891, -1.5434,  0.9368, -0.4201, -1.2595, -1.4878, -0.1522,
+                         0.7169, -0.1439,  0.9645, -0.3657, -0.6948,  1.5090,  1.6095, -0.2489]
+```
+
+The magnitudes changed (they're normalized now), but the **relative relationships** between dimensions are preserved. The large positive values are still positive, the negative values are still negative. Layer norm stabilized the scale without losing information.
+
+## Why Layer Norm Instead of Batch Norm?
+
+If you've done computer vision, you might've heard of **batch normalization**, which normalizes across the batch dimension instead of the feature dimension.
+
+Why does transformers use layer norm?
+
+1. **Sequence lengths vary** — batch norm needs consistent dimensions across samples. With variable-length sequences, that's awkward.
+2. **Layer norm works at inference** — batch norm needs batch statistics. Layer norm computes everything from a single sample, so inference is identical to training.
+3. **Stable for NLP** — empirically, layer norm just works better for transformers.
+
+## Where We Are in the Architecture
+
+Let's update our progress:
+
+1. ✅ **Embeddings** — Convert tokens to vectors
+2. ✅ **Q/K/V Projections** — Prepare for attention
+3. ✅ **Attention** — Let tokens communicate
+4. ✅ **Multi-head** — Combine attention heads
+5. ✅ **Feed-forward network** — Add non-linearity
+6. ✅ **Residual + Layer Norm** — Preserve info and stabilize ← We are here
+
+Still to come:
+- **Output projection** (predicting next token probabilities)
+- **Loss calculation** (measuring prediction error)
+- **Backpropagation** (computing gradients)
+- **Optimization** (updating weights with AdamW)
+
+## One Transformer Block: Complete
+
+Actually, we just finished a complete transformer block!
+
+In a real transformer, you'd stack multiple blocks. GPT-3 has 96 of these blocks. BERT has 12 or 24. Each block is the same architecture we just walked through:
+
+1. Multi-head attention
+2. Residual + Layer norm
+3. Feed-forward network
+4. Residual + Layer norm
+
+Then the output of one block becomes the input to the next.
+
+We're only using **one block** to keep things manageable. But the pattern scales: more blocks = more layers of abstraction and refinement.
+
+## What's Next
+
+The transformer block is done. Now we need to convert these 16-dimensional vectors into actual predictions.
+
+How do we predict the next token?
+
+We'll project these vectors into vocabulary space using a **language modeling head**, then compute the **loss** to see how wrong we are.
+
+That's next.

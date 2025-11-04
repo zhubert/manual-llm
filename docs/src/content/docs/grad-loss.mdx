@@ -1,6 +1,187 @@
 ---
-title: grad-loss
-description: Coming soon
+title: "8. Gradients: Loss"
+description: Computing gradients of the loss with respect to logits
 ---
 
-Content in progress...
+Alright. Time for backpropagation.
+
+We've got a loss of 1.865 — roughly random guessing. Now we need to figure out how to improve it. That means computing **gradients**.
+
+Gradients tell us: "if we nudge this parameter by a tiny amount, how much does the loss change?" Once we know that for every parameter, we can adjust them in the direction that reduces loss.
+
+This is **backpropagation** — walking backward through the computation graph, computing gradients via the chain rule.
+
+Let's start at the end: the loss.
+
+## The Setup
+
+Remember where we are:
+
+1. We computed logits (unnormalized scores for each token)
+2. Applied softmax to get probabilities
+3. Computed cross-entropy loss: $L = -\log P(\text{target})$
+
+Now we need the gradient of the loss with respect to the logits.
+
+Why logits, not probabilities? Because the logits are what we actually compute in the forward pass (probabilities are derived from them). To backpropagate further, we need $\frac{\partial L}{\partial \text{logits}}$.
+
+## The Beautiful Formula
+
+For cross-entropy loss with softmax, the gradient has an incredibly clean closed form:
+
+$$
+\frac{\partial L}{\partial logit_i} = P(i) - \mathbb{1}[i = target]
+$$
+
+Where:
+- $P(i)$ = softmax probability for token $i$
+- $\mathbb{1}[i = target]$ = 1 if $i$ is the correct token, 0 otherwise
+
+**That's it.**
+
+For the correct class: $\frac{\partial L}{\partial logit_{target}} = P(target) - 1$
+
+For all other classes: $\frac{\partial L}{\partial logit_i} = P(i) - 0 = P(i)$
+
+This is one of the most elegant results in machine learning. The softmax and cross-entropy combine to produce this incredibly simple gradient.
+
+## Why This Makes Sense
+
+Let's think about what these gradients mean.
+
+**Gradients point in the direction of INCREASING loss.**
+
+During gradient descent, we'll do: $logit = logit - \text{learning\_rate} \times gradient$
+
+So:
+- **For the correct class**: gradient is negative ($P - 1 < 0$ since $P < 1$)
+  - Subtracting a negative = adding → **INCREASE** this logit ✓
+- **For incorrect classes**: gradient is positive ($P > 0$)
+  - Subtracting a positive → **DECREASE** these logits ✓
+
+Perfect! We want to push the correct class's logit up and all others down. That's exactly what these gradients do.
+
+## Example: Position 0 (`<BOS>` → `I`)
+
+Let's compute gradients for position 0, where we're trying to predict `I` (token 3).
+
+**Current probabilities:**
+
+```python
+P(<PAD>)        = 0.1785
+P(<BOS>)        = 0.2007
+P(<EOS>)        = 0.1759
+P(I)            = 0.1254  ← target
+P(like)         = 0.1563
+P(transformers) = 0.1632
+```
+
+**Compute gradients using the formula:**
+
+For each token $i$:
+
+$$
+\frac{\partial L}{\partial logit_i} = P(i) - \mathbb{1}[i = 3]
+$$
+
+```python
+dL/dlogit[0] (PAD)          = 0.1785 - 0 =  0.1785
+dL/dlogit[1] (BOS)          = 0.2007 - 0 =  0.2007
+dL/dlogit[2] (EOS)          = 0.1759 - 0 =  0.1759
+dL/dlogit[3] (I)            = 0.1254 - 1 = -0.8746  ← target
+dL/dlogit[4] (like)         = 0.1563 - 0 =  0.1563
+dL/dlogit[5] (transformers) = 0.1632 - 0 =  0.1632
+```
+
+**Gradient vector:**
+
+```python
+dL/dlogits[0] = [ 0.1785,  0.2007,  0.1759, -0.8746,  0.1563,  0.1632]
+```
+
+Look at that! The target (`I`) has a **large negative gradient** (-0.8746), while all other tokens have **small positive gradients** (~0.15-0.20).
+
+This means:
+- **Increase** the logit for `I` (push probability toward 1.0)
+- **Decrease** the logits for all other tokens (push probabilities toward 0)
+
+## All Gradients
+
+Here are the gradients for all positions:
+
+```python
+dL_dlogits = [
+  [ 0.1785,  0.2007,  0.1759, -0.8746,  0.1563,  0.1632],  # pos 0: <BOS> -> I
+  [ 0.1836,  0.1969,  0.1805,  0.1233, -0.8500,  0.1657],  # pos 1: I -> like
+  [ 0.1795,  0.2050,  0.1782,  0.1207,  0.1437, -0.8272],  # pos 2: like -> transformers
+  [ 0.1855,  0.2017, -0.8229,  0.1271,  0.1391,  0.1695],  # pos 3: transformers -> <EOS>
+]
+```
+
+**Pattern:** At each position, the target token has a large negative gradient (~-0.82 to -0.87), and all non-targets have small positive gradients.
+
+The negative gradients are larger in magnitude because:
+- Target probability is small (around 0.12-0.17)
+- We subtract 1 from it
+- Result: around -0.83 to -0.88
+
+The positive gradients sum with the negative one to equal zero (because softmax probabilities sum to 1).
+
+## Verification: Gradients Sum to Zero
+
+Let's verify something neat. The gradients should sum to zero at each position:
+
+$$
+\sum_i \frac{\partial L}{\partial logit_i} = \sum_i (P(i) - \mathbb{1}[i = target]) = \sum_i P(i) - 1 = 1 - 1 = 0
+$$
+
+Checking our computed gradients:
+
+```python
+Position 0: sum(gradients) = -0.00000000 ✓
+Position 1: sum(gradients) = -0.00000000 ✓
+Position 2: sum(gradients) = -0.00000000 ✓
+Position 3: sum(gradients) =  0.00000000 ✓
+```
+
+Perfect. This is a good sanity check — if the gradients didn't sum to zero, we'd know something was wrong.
+
+## Why Is This Formula So Clean?
+
+You might wonder: where does this beautiful formula come from?
+
+It's the result of carefully chosen mathematics. When you combine:
+- **Softmax** for probabilities
+- **Cross-entropy** for loss
+
+The gradients simplify dramatically. If you were to derive it from scratch (using the chain rule through softmax), you'd get pages of algebra... that all cancels out to this simple form.
+
+This is why these choices are standard in classification problems. Not just because they work well — but because the math is elegant and the gradients are stable.
+
+## Magnitude Matters
+
+Notice the magnitudes:
+- Target gradient: ~-0.85
+- Non-target gradients: ~0.15-0.20
+
+The target gradient is **much larger** in magnitude. This makes sense:
+- The model is getting it wrong (low probability for correct answer)
+- We need a strong signal to push it in the right direction
+- The gradient is large to create a strong update
+
+As the model improves and assigns higher probability to the correct token, that gradient will shrink (approaching -1 + 1 = 0 at perfect confidence).
+
+## What's Next
+
+We've computed $\frac{\partial L}{\partial \text{logits}}$.
+
+But we can't update the logits directly — they're computed from the layer normalization output via the language modeling head ($logits = W_{lm} \cdot h$).
+
+To backpropagate further, we need:
+
+1. **Gradients for $W_{lm}$** (the language modeling head weights)
+2. **Gradients for $h$** (the hidden states going into the LM head)
+
+Then we'll continue backward through layer norm, FFN, attention, and finally the embeddings.
+
+Let's keep going.
