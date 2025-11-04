@@ -1,6 +1,283 @@
 ---
-title: loss
-description: Coming soon
+title: "7. Loss Calculation"
+description: Measuring prediction error with cross-entropy loss
 ---
 
-Content in progress...
+Alright. The forward pass is done.
+
+We've got these nice 16-dimensional vectors representing each token after going through embeddings, attention, FFN, and layer norm. But we still have a problem.
+
+**The model isn't actually predicting anything yet.**
+
+We have hidden states, not predictions. We need to convert these hidden states into probabilities over our vocabulary. Then we can measure how wrong we are.
+
+That's what this step does: **project to vocabulary space** and **compute the loss**.
+
+## The Task: Next-Token Prediction
+
+Our model is a language model. Its job is simple: given a sequence of tokens, predict the next token.
+
+Here's our sequence:
+
+```
+Input:  <BOS> I    like transformers <EOS>
+IDs:    [1,   3,   4,   5,          2]
+```
+
+At each position, we want to predict what comes next:
+
+```
+Position 0 (<BOS>):        should predict "I"           (token 3)
+Position 1 (I):            should predict "like"        (token 4)
+Position 2 (like):         should predict "transformers" (token 5)
+Position 3 (transformers): should predict "<EOS>"       (token 2)
+Position 4 (<EOS>):        nothing to predict (end of sequence)
+```
+
+So the targets are just the input shifted by one position: `[3, 4, 5, 2]`.
+
+## Step 1: Project to Vocabulary Space (Logits)
+
+Our hidden states are 16-dimensional. Our vocabulary has 6 tokens. We need to map from 16D → 6D.
+
+Enter the **language modeling head** (LM head): a simple linear projection.
+
+$$
+\text{logits} = W_{lm} \cdot \text{hidden\_state}
+$$
+
+Where:
+- $W_{lm}$: shape $[6, 16]$ (vocab_size × d_model)
+- $\text{hidden\_state}$: shape $[16]$
+- $\text{logits}$: shape $[6]$ (one score per vocabulary token)
+
+These "logits" are **unnormalized scores**. Higher scores mean the model thinks that token is more likely to come next.
+
+### Example: Position 0 (`<BOS>`)
+
+Our layer-normalized hidden state:
+
+```python
+layer_norm_output[0] = [ 1.1931, -0.4156, -1.6076,  0.9884, -0.3888, -1.1695,
+                        -1.7469, -0.0571,  0.6370, -0.2649,  0.9100, -0.4046,
+                        -0.5807,  1.4016,  1.5738, -0.0682]
+```
+
+Multiply by $W_{lm}$ to get logits:
+
+```python
+logits[0] = W_lm @ layer_norm_output[0]
+          = [ 0.0261,  0.1433,  0.0115, -0.3270, -0.1065, -0.0633]
+```
+
+**Interpretation:**
+
+| Token | Logit | Meaning |
+|-------|-------|---------|
+| `<PAD>` | 0.0261 | Slightly positive — model gives it some weight |
+| `<BOS>` | **0.1433** | Highest score (but still almost random) |
+| `<EOS>` | 0.0115 | Near zero — neutral |
+| `I` | -0.3270 | Negative — model thinks this is less likely |
+| `like` | -0.1065 | Slightly negative |
+| `transformers` | -0.0633 | Slightly negative |
+
+The model is leaning toward `<BOS>` (the highest logit), but it's basically guessing. That makes sense — the weights are random!
+
+### All Logits
+
+Here are the logits for all positions:
+
+```python
+logits = [
+  [ 0.0261,  0.1433,  0.0115, -0.3270, -0.1065, -0.0633],  # pos 0: <BOS>
+  [ 0.0650,  0.1350,  0.0480, -0.3330, -0.1369, -0.0377],  # pos 1: I
+  [ 0.0663,  0.1988,  0.0590, -0.3305, -0.1561,  0.0280],  # pos 2: like
+  [ 0.0876,  0.1714,  0.0415, -0.2901, -0.2000, -0.0022],  # pos 3: transformers
+  [ 0.0821,  0.1498,  0.0457, -0.2511, -0.1983, -0.0077],  # pos 4: <EOS>
+]
+```
+
+## Step 2: Convert to Probabilities (Softmax)
+
+Logits are scores, but they're not probabilities. They don't sum to 1. Some are negative.
+
+**Softmax** fixes this by converting logits into a proper probability distribution.
+
+$$
+P(token_i) = \frac{\exp(logit_i)}{\sum_j \exp(logit_j)}
+$$
+
+This ensures:
+- All probabilities are positive (thanks to $\exp$)
+- They sum to 1.0 (thanks to normalization)
+
+### Example: Position 0
+
+```python
+logits[0] = [ 0.0261,  0.1433,  0.0115, -0.3270, -0.1065, -0.0633]
+```
+
+Apply softmax:
+
+```python
+probs[0] = [ 0.1785,  0.2007,  0.1759,  0.1254,  0.1563,  0.1632]
+```
+
+**Check:** $0.1785 + 0.2007 + ... + 0.1632 = 1.0$ ✓
+
+**Interpretation (model's prediction for next token):**
+
+| Token | Probability | Meaning |
+|-------|------------|---------|
+| `<PAD>` | 17.85% | Model thinks there's ~18% chance next token is `<PAD>` |
+| `<BOS>` | **20.07%** | Highest probability (but barely!) |
+| `<EOS>` | 17.59% | Almost as likely as `<PAD>` |
+| `I` | 12.54% | Lowest probability |
+| `like` | 15.63% | Moderately unlikely |
+| `transformers` | 16.32% | Slightly more likely than `like` |
+
+The model is basically assigning uniform probabilities (~16.7% each if perfectly uniform). It's not confident about anything.
+
+But here's the thing: the **correct answer** is `I` (token 3), which only got 12.54% probability. That's... not great.
+
+### All Probabilities
+
+```python
+probs = [
+  [ 0.1785,  0.2007,  0.1759,  0.1254,  0.1563,  0.1632],  # pos 0: <BOS>
+  [ 0.1836,  0.1969,  0.1805,  0.1233,  0.1500,  0.1657],  # pos 1: I
+  [ 0.1795,  0.2050,  0.1782,  0.1207,  0.1437,  0.1728],  # pos 2: like
+  [ 0.1855,  0.2017,  0.1771,  0.1271,  0.1391,  0.1695],  # pos 3: transformers
+  [ 0.1845,  0.1974,  0.1779,  0.1322,  0.1394,  0.1686],  # pos 4: <EOS>
+]
+```
+
+## Step 3: Compute Loss (Cross-Entropy)
+
+Now we need to measure how wrong the model is.
+
+The metric we use is **cross-entropy loss**. It's defined as:
+
+$$
+L = -\log P(\text{correct\_token})
+$$
+
+Yep, that's it. Just the negative log probability of the correct token.
+
+**Why this formula?**
+
+- If the model is confident and correct (P = 1.0), loss = $-\log(1.0) = 0$ → perfect!
+- If the model is uncertain (P = 0.5), loss = $-\log(0.5) \approx 0.69$ → okay, not great
+- If the model is wrong and confident (P = 0.1), loss = $-\log(0.1) \approx 2.3$ → bad!
+
+Lower loss = better predictions.
+
+### Example: Position 0 (`<BOS>` → `I`)
+
+The correct next token is `I` (token 3).
+
+```python
+P(I) = probs[0][3] = 0.1254
+```
+
+Loss:
+
+```python
+L = -log(0.1254) = 2.076
+```
+
+That's pretty high. For reference:
+- Random guessing (uniform over 6 tokens): $-\log(1/6) \approx 1.79$
+- Our model: 2.08
+
+We're actually **worse than random** at this position. The model assigned below-average probability to the correct token.
+
+### All Losses
+
+Let's compute the loss at each position:
+
+| Position | Current Token | Target Token | P(target) | Loss |
+|----------|--------------|--------------|-----------|------|
+| 0 | `<BOS>` | `I` | 0.1254 | 2.076 |
+| 1 | `I` | `like` | 0.1500 | 1.897 |
+| 2 | `like` | `transformers` | 0.1728 | 1.756 |
+| 3 | `transformers` | `<EOS>` | 0.1771 | 1.731 |
+
+```python
+Total loss:   7.460
+Average loss: 1.865
+```
+
+## What Does This Loss Mean?
+
+Average loss: **1.865**
+
+For reference:
+- **Random guessing** (uniform distribution): $-\log(1/6) \approx 1.79$
+- **Perfect prediction**: $-\log(1.0) = 0.0$
+
+Our model's loss is 1.865, which is slightly worse than random guessing. That's exactly what we'd expect from an **untrained model with random weights**.
+
+Actually, it's kind of beautiful in a way. The model has never seen data, never been trained, has no idea what language is... and yet it's producing losses that are close to uniform randomness. The architecture works, the math checks out. It's just clueless about what to predict.
+
+**After training**, this loss should drop dramatically. A well-trained model might get losses around 0.1-0.5 for simple sequences like this, meaning it's assigning 60-90% probability to the correct next token.
+
+## Why Cross-Entropy?
+
+You might wonder: why not just use accuracy? Or squared error?
+
+**Cross-entropy is perfect for classification** because:
+
+1. **Differentiable** — smooth gradients for backprop (unlike accuracy, which is discrete)
+2. **Probabilistic interpretation** — directly measures how well our probability distribution matches the true distribution
+3. **Penalizes confidence** — being confidently wrong hurts more than being uncertain
+4. **Well-behaved gradients** — combined with softmax, it produces simple, stable gradients (we'll see this in backprop!)
+
+The gradient of cross-entropy loss w.r.t. logits is beautifully simple:
+
+$$
+\frac{\partial L}{\partial logit_i} = P(i) - \mathbb{1}[i = target]
+$$
+
+It's just the predicted probability minus 1 for the correct class (or minus 0 for incorrect classes). Clean and elegant.
+
+## Forward Pass: Complete!
+
+Let's recap what we've computed:
+
+1. ✅ **Embeddings** — Converted tokens to vectors
+2. ✅ **Q/K/V Projections** — Prepared for attention
+3. ✅ **Attention** — Computed context-aware representations
+4. ✅ **Multi-head** — Combined multiple attention perspectives
+5. ✅ **Feed-forward** — Applied non-linear transformations
+6. ✅ **Layer normalization** — Stabilized activations with residuals
+7. ✅ **Output projection** — Projected to vocabulary space
+8. ✅ **Loss calculation** — Measured prediction error
+
+**The forward pass is done.**
+
+We took a sentence ("I like transformers"), passed it through a complete transformer block, made predictions, and computed how wrong we were.
+
+Loss: **1.865** (roughly random, as expected for untrained weights)
+
+## What's Next: Backpropagation
+
+Now comes the fun part.
+
+We know the model is wrong (loss = 1.865). The question is: **how do we fix it?**
+
+We need to compute gradients — how much each parameter (weight, bias) contributed to the error. Then we'll update those parameters to reduce the loss.
+
+This is **backpropagation**: computing gradients by walking backward through the computation graph, applying the chain rule at each step.
+
+We'll start from the loss and work our way back through:
+- Loss gradients
+- Output layer gradients
+- Layer norm gradients
+- FFN gradients
+- Attention gradients
+- Embedding gradients
+
+Then we'll use those gradients to update the weights with AdamW optimizer.
+
+Let's get to it.
