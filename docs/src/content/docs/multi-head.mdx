@@ -3,26 +3,32 @@ title: "4. Multi-Head Attention"
 description: Combining multiple attention heads into a unified representation
 ---
 
-Now we've got attention outputs from two independent heads. Time to combine them.
+Alright. We've got attention outputs from both heads. Now what?
 
-This is the "multi-head" part of multi-head attention. Each head has been looking at the sequence through its own lens, learning different patterns and relationships. Now we need to merge these perspectives into a single, unified representation.
+Time to combine them.
+
+This is the "multi-head" part of multi-head attention (shocking, I know). Each head's been looking at the sequence through its own lens, learning different patterns and relationships. Now we need to merge these perspectives into a single, unified representation.
 
 ## Why Multiple Heads?
 
-Think of it like having multiple experts examine the same data:
+Think of it like having multiple experts examine the same data. Each one notices different things.
+
+In a trained model, different heads genuinely specialize:
 - **Head 0** might focus on local patterns (adjacent words, nearby relationships)
 - **Head 1** might capture long-range dependencies (distant relationships, document structure)
 
-In a trained model, different heads genuinely specialize in different types of relationships. Some might learn syntactic patterns (subject-verb agreement, grammatical structure), while others capture semantic relationships (what concepts are related, what words mean together).
+Some might learn syntactic patterns—subject-verb agreement, grammatical structure. Others capture semantic relationships—what concepts are related, what words mean together.
 
-Our model isn't trained yet, so the heads haven't learned these specializations—but the architecture is ready for it.
+Our model isn't trained yet (obviously), so the heads haven't learned these specializations. But the architecture is ready for it. When we eventually train this thing, the heads will figure out their own division of labor.
 
-## The Multi-Head Attention Algorithm
+## The Algorithm
 
-The process is straightforward:
+The process is pretty straightforward:
 
 1. **Concatenate** the outputs from all heads
 2. **Project** the concatenated result through a learned linear transformation
+
+That's it. Two steps.
 
 Mathematically:
 
@@ -52,6 +58,8 @@ Concatenated:  [ 0.0231, -0.0259, -0.0087, -0.0535,  0.0329, -0.0185, -0.0107, -
 
 We literally just stick the vectors together, end to end. Head 0's 8 dimensions followed by Head 1's 8 dimensions = 16 dimensions total.
 
+Simple.
+
 ### Complete Concatenated Output
 
 ```python
@@ -66,18 +74,20 @@ concat_output = [
 
 ## Step 2: Output Projection
 
-Now we have 16-dimensional vectors (concatenated from both heads), and we need to project them back to $d_{model} = 16$ dimensions using a learned weight matrix $W_O$.
+Now we've got 16-dimensional vectors (concatenated from both heads), and we need to project them back to $d_{model} = 16$ dimensions using a learned weight matrix $W_O$.
 
-**Why project if we're already at the right dimension?**
+**Wait—why project if we're already at the right dimension?**
 
-Good question! Even though the dimensions match, the projection serves an important purpose: it lets the model learn how to **mix information** from different heads.
+Yeah, good question. I wondered the same thing at first.
 
-Without this projection, Head 0 and Head 1 would operate completely independently—their outputs would never interact. The projection matrix $W_O$ allows the model to learn things like:
+Even though the dimensions match, the projection serves a critical purpose: it lets the model learn how to **mix information** from different heads.
+
+Without this projection, Head 0 and Head 1 would operate completely independently—their outputs would just sit next to each other, never interacting. The projection matrix $W_O$ allows the model to learn things like:
 - "When Head 0 sees pattern X and Head 1 sees pattern Y, emphasize these specific features"
 - "These dimensions from Head 0 are more important than those from Head 1"
 - "Combine these features across heads to detect higher-level patterns"
 
-The projection learns to weight and combine the head outputs in useful ways.
+It's learning how to weight and combine the head outputs in useful ways. Not just changing dimensions—learning optimal combinations.
 
 ### The Output Projection Matrix $W_O$
 
@@ -122,6 +132,8 @@ output[0][0] = (0.0231 × -0.0144) + (-0.0259 × 0.0246) + ... + (-0.0461 × -0.
              = 0.0016
 ```
 
+Standard matrix multiplication. Nothing fancy.
+
 ## Complete Multi-Head Attention Output
 
 This is what we get after combining both heads and projecting:
@@ -151,7 +163,7 @@ Each token's representation now contains:
 - Patterns detected by multiple attention heads
 - A richer, more context-aware representation than the original embeddings
 
-Compare position 1 (`I`) before and after attention:
+Look at position 1 (`I`) before and after attention:
 
 **Original embedding:** (from tokenization step)
 ```python
@@ -165,11 +177,13 @@ multi_head_output[1] = [ 0.0046,  0.0126,  0.0026,  0.0206,  0.0060, -0.0012,  0
                          0.0180, -0.0151, -0.0121, -0.0024, -0.0141, -0.0227, -0.0079, -0.0074]
 ```
 
-The token `I` now has a representation that incorporates information from `<BOS>` and itself (since those are the only tokens it could attend to due to the causal mask). In a trained model, this would encode things like "I is the start of a clause" or "I is the subject of a sentence."
+The token `I` now has a representation that incorporates information from `<BOS>` and itself (the only tokens it could attend to, thanks to the causal mask). In a trained model, this would encode things like "I is the start of a clause" or "I is the subject of a sentence."
+
+Right now it's just random numbers. But you get the idea.
 
 ## Dimensions At Each Stage
 
-Let's trace the shapes through the entire attention mechanism:
+Let's trace the shapes through the entire attention mechanism (because shape mismatches are the worst debugging experience ever, and it helps to see them all in one place):
 
 | Stage | Shape | Description |
 |-------|-------|-------------|
@@ -184,11 +198,15 @@ Notice we start at $[5, 16]$ and end at $[5, 16]$. The attention mechanism is a 
 
 ## What's Next
 
-Multi-head attention is done! But we're not finished with the transformer block yet. Next up:
+Multi-head attention is done!
+
+But we're not finished with the transformer block yet. Not even close. Next up:
 
 1. **Residual connection** — Add the original input back to prevent information loss
 2. **Layer normalization** — Stabilize the activations
 3. **Feed-forward network** — Apply position-wise transformations
 4. **Another residual + layer norm** — One more round
 
-Then we'll finally project to vocabulary and compute the loss. We're making progress!
+Then we'll finally project to vocabulary and compute the loss.
+
+We're making progress!
