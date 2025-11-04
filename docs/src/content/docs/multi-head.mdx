@@ -104,6 +104,41 @@ $$
 - $W_O^T$: $[16, 16]$ (16 input features, 16 output features)
 - $\text{output}$: $[5, 16]$ (5 tokens, 16 features)
 
+### Wait—Why the Transpose?
+
+You might have noticed that $W_O^T$ in the formula. Let me explain why we need it.
+
+**The stored matrix $W_O$ has shape $[16, 16]$**, where:
+- Each **row** represents the weights that produce one output feature
+- Each **column** represents how much one input feature contributes
+
+But when we do matrix multiplication with `concat_output @ W_O^T`, we need the dimensions to line up correctly:
+
+```
+concat_output @ W_O^T
+   [5, 16]    @ [16, 16]  →  [5, 16]
+```
+
+The rule for matrix multiplication is: **(M × N) @ (N × P) → (M × P)**
+
+For this to work, the "inner" dimensions must match. Our `concat_output` has shape `[5, 16]`, which means:
+- 5 rows (one per token)
+- 16 columns (one per concatenated feature)
+
+We need to multiply by a matrix with **16 rows** (to match the 16 columns of concat_output).
+
+**If we stored $W_O$ as $[16, 16]$ with rows as output features**, then $W_O^T$ (the transpose) rearranges it so:
+- Rows become columns
+- Columns become rows
+
+After transposing, the first dimension is still 16 (matching concat_output's second dimension), and the second dimension is 16 (our desired output size).
+
+**Alternatively**, many implementations store the weight matrix in the "ready-to-use" orientation, so you'd just multiply by $W_O$ directly without transposing. It's a convention thing—what matters is that the dimensions line up for multiplication.
+
+In our case, we store $W_O$ in the "weights per output feature" orientation (each row = one output), so we transpose it for multiplication.
+
+**Bottom line:** The transpose ensures the matrix multiplication dimensions are compatible. That's it.
+
 ### Example Calculation: Position 0
 
 For the `<BOS>` token at position 0:
