@@ -1,6 +1,194 @@
 ---
-title: multi-head
-description: Coming soon
+title: "4. Multi-Head Attention"
+description: Combining multiple attention heads into a unified representation
 ---
 
-Content in progress...
+Now we've got attention outputs from two independent heads. Time to combine them.
+
+This is the "multi-head" part of multi-head attention. Each head has been looking at the sequence through its own lens, learning different patterns and relationships. Now we need to merge these perspectives into a single, unified representation.
+
+## Why Multiple Heads?
+
+Think of it like having multiple experts examine the same data:
+- **Head 0** might focus on local patterns (adjacent words, nearby relationships)
+- **Head 1** might capture long-range dependencies (distant relationships, document structure)
+
+In a trained model, different heads genuinely specialize in different types of relationships. Some might learn syntactic patterns (subject-verb agreement, grammatical structure), while others capture semantic relationships (what concepts are related, what words mean together).
+
+Our model isn't trained yet, so the heads haven't learned these specializations—but the architecture is ready for it.
+
+## The Multi-Head Attention Algorithm
+
+The process is straightforward:
+
+1. **Concatenate** the outputs from all heads
+2. **Project** the concatenated result through a learned linear transformation
+
+Mathematically:
+
+$$
+\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_0, \text{head}_1) W_O
+$$
+
+Where each head is computed as:
+
+$$
+\text{head}_i = \text{Attention}(Q_i, K_i, V_i)
+$$
+
+## Step 1: Concatenate Head Outputs
+
+Each head produced an output of shape $[5, 8]$ (5 tokens, 8 dimensions per head). We concatenate along the feature dimension to get $[5, 16]$.
+
+**Example: Position 0 (`<BOS>`)**
+
+```python
+Head 0 output: [ 0.0231, -0.0259, -0.0087, -0.0535,  0.0329, -0.0185, -0.0107, -0.0314]
+Head 1 output: [ 0.1121,  0.0715,  0.0069, -0.0306,  0.1259, -0.0195,  0.0731, -0.0461]
+
+Concatenated:  [ 0.0231, -0.0259, -0.0087, -0.0535,  0.0329, -0.0185, -0.0107, -0.0314,
+                 0.1121,  0.0715,  0.0069, -0.0306,  0.1259, -0.0195,  0.0731, -0.0461]
+```
+
+We literally just stick the vectors together, end to end. Head 0's 8 dimensions followed by Head 1's 8 dimensions = 16 dimensions total.
+
+### Complete Concatenated Output
+
+```python
+concat_output = [
+  [ 0.0231, -0.0259, -0.0087, -0.0535,  0.0329, -0.0185, -0.0107, -0.0314,  0.1121,  0.0715,  0.0069, -0.0306,  0.1259, -0.0195,  0.0731, -0.0461],  # pos 0: <BOS>
+  [ 0.0227, -0.0351,  0.0399, -0.0237,  0.0634, -0.0086, -0.0010, -0.0191,  0.0575,  0.0507,  0.0284,  0.0011,  0.0891,  0.0082,  0.0145, -0.0051],  # pos 1: I
+  [ 0.0219, -0.0333,  0.0449,  0.0106,  0.0492, -0.0195, -0.0117,  0.0310,  0.0463,  0.0021,  0.0029, -0.0268,  0.0053, -0.0348,  0.0056, -0.0118],  # pos 2: like
+  [ 0.0266,  0.0088,  0.0242,  0.0224,  0.0327, -0.0438,  0.0078,  0.0024,  0.0322,  0.0146, -0.0013, -0.0265,  0.0217, -0.0385, -0.0038, -0.0171],  # pos 3: transformers
+  [ 0.0236,  0.0109,  0.0062,  0.0049,  0.0009, -0.0366,  0.0100, -0.0005,  0.0288,  0.0139,  0.0007, -0.0346,  0.0134, -0.0387, -0.0149, -0.0079],  # pos 4: <EOS>
+]
+```
+
+## Step 2: Output Projection
+
+Now we have 16-dimensional vectors (concatenated from both heads), and we need to project them back to $d_{model} = 16$ dimensions using a learned weight matrix $W_O$.
+
+**Why project if we're already at the right dimension?**
+
+Good question! Even though the dimensions match, the projection serves an important purpose: it lets the model learn how to **mix information** from different heads.
+
+Without this projection, Head 0 and Head 1 would operate completely independently—their outputs would never interact. The projection matrix $W_O$ allows the model to learn things like:
+- "When Head 0 sees pattern X and Head 1 sees pattern Y, emphasize these specific features"
+- "These dimensions from Head 0 are more important than those from Head 1"
+- "Combine these features across heads to detect higher-level patterns"
+
+The projection learns to weight and combine the head outputs in useful ways.
+
+### The Output Projection Matrix $W_O$
+
+Shape: $[16, 16]$
+
+This matrix learns how to optimally combine information from all heads. Each row defines how one output dimension is computed as a weighted combination of all the concatenated head features.
+
+$$
+\text{output} = \text{concat\_output} \cdot W_O^T
+$$
+
+**Shape check:**
+- $\text{concat\_output}$: $[5, 16]$ (5 tokens, 16 features)
+- $W_O^T$: $[16, 16]$ (16 input features, 16 output features)
+- $\text{output}$: $[5, 16]$ (5 tokens, 16 features)
+
+### Example Calculation: Position 0
+
+For the `<BOS>` token at position 0:
+
+```python
+concat_output[0] = [ 0.0231, -0.0259, -0.0087, -0.0535,  0.0329, -0.0185, -0.0107, -0.0314,
+                     0.1121,  0.0715,  0.0069, -0.0306,  0.1259, -0.0195,  0.0731, -0.0461]
+```
+
+We multiply this by $W_O^T$ to get:
+
+```python
+multi_head_output[0] = [ 0.0016,  0.0317,  0.0027,  0.0241,  0.0082,  0.0150, -0.0055,  0.0230,
+                         0.0080, -0.0248, -0.0242, -0.0061,  0.0011, -0.0391, -0.0154,  0.0160]
+```
+
+Each dimension is computed as:
+
+$$
+\text{output}[0][j] = \sum_{i=0}^{15} \text{concat}[0][i] \times W_O[j][i]
+$$
+
+For example, the first output dimension (index 0):
+```python
+output[0][0] = (0.0231 × -0.0144) + (-0.0259 × 0.0246) + ... + (-0.0461 × -0.1157)
+             = 0.0016
+```
+
+## Complete Multi-Head Attention Output
+
+This is what we get after combining both heads and projecting:
+
+```python
+multi_head_output = [
+  [ 0.0016,  0.0317,  0.0027,  0.0241,  0.0082,  0.0150, -0.0055,  0.0230,  0.0080, -0.0248, -0.0242, -0.0061,  0.0011, -0.0391, -0.0154,  0.0160],  # pos 0: <BOS>
+  [ 0.0046,  0.0126,  0.0026,  0.0206,  0.0060, -0.0012,  0.0130,  0.0106,  0.0180, -0.0151, -0.0121, -0.0024, -0.0141, -0.0227, -0.0079, -0.0074],  # pos 1: I
+  [-0.0017,  0.0134, -0.0090, -0.0061,  0.0172, -0.0122,  0.0111,  0.0048,  0.0245, -0.0234,  0.0118, -0.0086, -0.0080, -0.0297, -0.0096, -0.0187],  # pos 2: like
+  [ 0.0065,  0.0198, -0.0037, -0.0071,  0.0051, -0.0098,  0.0037, -0.0054,  0.0174, -0.0191,  0.0104,  0.0042,  0.0058, -0.0050, -0.0070, -0.0210],  # pos 3: transformers
+  [ 0.0034,  0.0141, -0.0069, -0.0055,  0.0054, -0.0035, -0.0040, -0.0061,  0.0126, -0.0141,  0.0056,  0.0062,  0.0106, -0.0020, -0.0064, -0.0221],  # pos 4: <EOS>
+]
+```
+
+**Shape:** $[5, 16]$ — back to $d_{model}$ dimensions, ready for the next layer.
+
+## What Have We Accomplished?
+
+Starting from the original embeddings, we've now:
+
+1. **Projected** into queries, keys, and values for each head
+2. **Computed attention** in each head independently
+3. **Combined** the heads through concatenation and projection
+
+Each token's representation now contains:
+- Information from other tokens it attended to
+- Patterns detected by multiple attention heads
+- A richer, more context-aware representation than the original embeddings
+
+Compare position 1 (`I`) before and after attention:
+
+**Original embedding:** (from tokenization step)
+```python
+X[1] = [-0.0044,  0.0291, -0.0025,  0.0147,  0.0020,  0.0158,  0.0098,  0.0091,
+        -0.0126, -0.0132, -0.0061,  0.0034, -0.0109, -0.0038,  0.0103,  0.0013]
+```
+
+**After multi-head attention:**
+```python
+multi_head_output[1] = [ 0.0046,  0.0126,  0.0026,  0.0206,  0.0060, -0.0012,  0.0130,  0.0106,
+                         0.0180, -0.0151, -0.0121, -0.0024, -0.0141, -0.0227, -0.0079, -0.0074]
+```
+
+The token `I` now has a representation that incorporates information from `<BOS>` and itself (since those are the only tokens it could attend to due to the causal mask). In a trained model, this would encode things like "I is the start of a clause" or "I is the subject of a sentence."
+
+## Dimensions At Each Stage
+
+Let's trace the shapes through the entire attention mechanism:
+
+| Stage | Shape | Description |
+|-------|-------|-------------|
+| Input $X$ | $[5, 16]$ | Original embeddings |
+| After Q/K/V projection (per head) | $[5, 8]$ | Each head projects to smaller dimension |
+| Attention weights (per head) | $[5, 5]$ | How much each position attends to others |
+| Attention output (per head) | $[5, 8]$ | Weighted sum of values |
+| After concatenation | $[5, 16]$ | Heads combined side-by-side |
+| After output projection | $[5, 16]$ | Final multi-head attention output |
+
+Notice we start at $[5, 16]$ and end at $[5, 16]$. The attention mechanism is a transformation that preserves the shape while enriching the content.
+
+## What's Next
+
+Multi-head attention is done! But we're not finished with the transformer block yet. Next up:
+
+1. **Residual connection** — Add the original input back to prevent information loss
+2. **Layer normalization** — Stabilize the activations
+3. **Feed-forward network** — Apply position-wise transformations
+4. **Another residual + layer norm** — One more round
+
+Then we'll finally project to vocabulary and compute the loss. We're making progress!
