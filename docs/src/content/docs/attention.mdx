@@ -1,6 +1,269 @@
 ---
-title: attention
-description: Coming soon
+title: "3. Attention Mechanism"
+description: Computing attention scores and weighted combinations of values
 ---
 
-Content in progress...
+Now that we have Query, Key, and Value projections for each head, we can compute the **attention mechanism** - the core innovation that makes transformers so powerful.
+
+## What is Attention?
+
+Attention allows each token to look at other tokens in the sequence and decide how much "attention" to pay to each one. This creates context-aware representations where each token's output depends on the entire sequence (up to its position).
+
+**The intuition:**
+- **Query (Q)**: "What am I looking for?"
+- **Key (K)**: "What do I offer?"
+- **Value (V)**: "What information do I provide?"
+
+For each token, we compute how well its query matches every key, then use those scores to create a weighted combination of values.
+
+## The Attention Algorithm
+
+The attention mechanism consists of 5 steps:
+
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+$$
+
+Let's break this down:
+
+### Step 1: Compute Attention Scores
+
+Multiply queries by keys (transposed) to get a matrix of "compatibility scores":
+
+$$
+\text{scores} = QK^T
+$$
+
+**Shapes:**
+- $Q$: $[5, 8]$ (5 tokens, 8 dimensions per head)
+- $K^T$: $[8, 5]$ (transposed from $[5, 8]$)
+- $\text{scores}$: $[5, 5]$ (each token attending to each token)
+
+Each element $\text{scores}_{ij}$ represents how much token $i$ should attend to token $j$.
+
+### Step 2: Scale the Scores
+
+Divide by $\sqrt{d_k}$ to prevent very large values (which would make softmax too sharp):
+
+$$
+\text{scaled\_scores} = \frac{\text{scores}}{\sqrt{d_k}} = \frac{\text{scores}}{\sqrt{8}} = \frac{\text{scores}}{2.8284}
+$$
+
+**Why scale?** Without scaling, the dot products can grow large in magnitude, pushing softmax into regions with very small gradients, making training difficult.
+
+### Step 3: Apply Causal Mask
+
+For autoregressive (decoder-only) transformers, each position can only attend to **previous positions** (including itself). We set future positions to $-\infty$:
+
+$$
+\text{masked\_scores}_{ij} = \begin{cases}
+\text{scaled\_scores}_{ij} & \text{if } j \leq i \\
+-\infty & \text{if } j > i
+\end{cases}
+$$
+
+**Mask pattern:**
+```
+Position:     0  1  2  3  4
+0 (<BOS>)   [ ✓  ✗  ✗  ✗  ✗ ]  can only see itself
+1 (I)       [ ✓  ✓  ✗  ✗  ✗ ]  can see 0, 1
+2 (like)    [ ✓  ✓  ✓  ✗  ✗ ]  can see 0, 1, 2
+3 (trans.)  [ ✓  ✓  ✓  ✓  ✗ ]  can see 0, 1, 2, 3
+4 (<EOS>)   [ ✓  ✓  ✓  ✓  ✓ ]  can see all
+```
+
+### Step 4: Apply Softmax
+
+Convert scores to probabilities (each row sums to 1):
+
+$$
+\text{weights}_{ij} = \frac{e^{\text{masked\_scores}_{ij}}}{\sum_{k=1}^{n} e^{\text{masked\_scores}_{ik}}}
+$$
+
+This gives us the **attention weights** - how much each token should attend to each other token.
+
+### Step 5: Compute Weighted Sum of Values
+
+Multiply attention weights by values to get the final output:
+
+$$
+\text{output} = \text{weights} \cdot V
+$$
+
+Each output vector is a weighted combination of all the value vectors that this position can attend to.
+
+## Example Calculation: Position 1, Head 0
+
+Let's walk through the attention calculation for position 1 (token "I") in head 0.
+
+### Step 1: Attention Scores
+
+For position 1, we compute how well its query matches all keys:
+
+$$
+\text{score}_{1j} = Q[0][1] \cdot K[0][j]
+$$
+
+**For position 1 attending to position 0:**
+```python
+Q[0][1] = [0.0389, -0.0146, 0.0477, -0.0396, 0.0275, 0.0247, 0.0317, 0.0619]
+K[0][0] = [0.0237,  0.0403, -0.0276,  0.0297, -0.0048, -0.0394, 0.0016, 0.0661]
+
+score[1, 0] = (0.0389 × 0.0237) + (-0.0146 × 0.0403) + ... + (0.0619 × 0.0661)
+            = 0.0009
+```
+
+**For position 1 attending to position 1:**
+```python
+Q[0][1] = [0.0389, -0.0146, 0.0477, -0.0396, 0.0275, 0.0247, 0.0317, 0.0619]
+K[0][1] = [-0.0188, 0.0668, -0.0556, -0.0324, -0.0575, 0.1045, 0.0703, -0.0518]
+
+score[1, 1] = -0.0030
+```
+
+**Position 1 can only attend to positions 0 and 1 (due to causal mask).**
+
+### Step 2: Scale
+
+$$
+\text{scaled\_score}_{10} = \frac{0.0009}{2.8284} = 0.0003
+$$
+
+$$
+\text{scaled\_score}_{11} = \frac{-0.0030}{2.8284} = -0.0011
+$$
+
+### Step 3: Mask
+
+Positions 2, 3, 4 are set to $-\infty$ (future positions):
+
+$$
+\text{masked\_scores}[1] = [0.0003, -0.0011, -\infty, -\infty, -\infty]
+$$
+
+### Step 4: Softmax
+
+Only considering positions 0 and 1:
+
+$$
+\begin{aligned}
+\text{weight}_{10} &= \frac{e^{0.0003}}{e^{0.0003} + e^{-0.0011}} = 0.5003 \\
+\text{weight}_{11} &= \frac{e^{-0.0011}}{e^{0.0003} + e^{-0.0011}} = 0.4997
+\end{aligned}
+$$
+
+**Interpretation:** Position 1 pays almost equal attention to position 0 (50.03%) and itself (49.97%).
+
+### Step 5: Weighted Sum
+
+$$
+\begin{aligned}
+\text{output}[1] &= 0.5003 \times V[0][0] + 0.4997 \times V[0][1] \\
+&= 0.5003 \times [0.0231, -0.0259, ...] + 0.4997 \times [0.0223, -0.0442, ...] \\
+&= [0.0227, -0.0351, 0.0399, -0.0237, 0.0634, -0.0086, -0.0010, -0.0191]
+\end{aligned}
+$$
+
+This output vector now contains information from both the `<BOS>` token and the "I" token!
+
+## Head 0 Results
+
+### Attention Weights
+
+Each row shows how much that position attends to all positions (including only allowed positions due to causal mask):
+
+```python
+attention_weights[0] = [
+  [1.0000, 0.0000, 0.0000, 0.0000, 0.0000],  # pos 0: <BOS>
+  [0.5003, 0.4997, 0.0000, 0.0000, 0.0000],  # pos 1: I
+  [0.3330, 0.3326, 0.3344, 0.0000, 0.0000],  # pos 2: like
+  [0.2491, 0.2518, 0.2496, 0.2495, 0.0000],  # pos 3: transformers
+  [0.1995, 0.2006, 0.1999, 0.2000, 0.2000],  # pos 4: <EOS>
+]
+```
+
+**Observations:**
+- Position 0 (`<BOS>`) can only attend to itself (100%)
+- Position 1 (`I`) attends ~50% to `<BOS>` and ~50% to itself
+- Later positions spread attention more evenly across all previous tokens
+- The last position (`<EOS>`) attends almost equally (~20% each) to all tokens
+
+### Attention Output
+
+The weighted combination of value vectors:
+
+```python
+attention_output[0] = [
+  [ 0.0231, -0.0259, -0.0087, -0.0535,  0.0329, -0.0185, -0.0107, -0.0314],  # pos 0: <BOS>
+  [ 0.0227, -0.0351,  0.0399, -0.0237,  0.0634, -0.0086, -0.0010, -0.0191],  # pos 1: I
+  [ 0.0219, -0.0333,  0.0449,  0.0106,  0.0492, -0.0195, -0.0117,  0.0310],  # pos 2: like
+  [ 0.0266,  0.0088,  0.0242,  0.0224,  0.0327, -0.0438,  0.0078,  0.0024],  # pos 3: transformers
+  [ 0.0236,  0.0109,  0.0062,  0.0049,  0.0009, -0.0366,  0.0100, -0.0005],  # pos 4: <EOS>
+]
+```
+
+## Head 1 Results
+
+The second head computes attention independently with different learned weights:
+
+### Attention Weights
+
+```python
+attention_weights[1] = [
+  [1.0000, 0.0000, 0.0000, 0.0000, 0.0000],  # pos 0: <BOS>
+  [0.5022, 0.4978, 0.0000, 0.0000, 0.0000],  # pos 1: I
+  [0.3320, 0.3336, 0.3344, 0.0000, 0.0000],  # pos 2: like
+  [0.2499, 0.2518, 0.2488, 0.2495, 0.0000],  # pos 3: transformers
+  [0.2001, 0.2005, 0.2003, 0.1997, 0.1994],  # pos 4: <EOS>
+]
+```
+
+**Note:** The patterns are similar to Head 0, but with slightly different values. In a trained model, different heads often learn to focus on different types of relationships (e.g., syntactic vs. semantic).
+
+### Attention Output
+
+```python
+attention_output[1] = [
+  [ 0.1121,  0.0715,  0.0069, -0.0306,  0.1259, -0.0195,  0.0731, -0.0461],  # pos 0: <BOS>
+  [ 0.0575,  0.0507,  0.0284,  0.0011,  0.0891,  0.0082,  0.0145, -0.0051],  # pos 1: I
+  [ 0.0463,  0.0021,  0.0029, -0.0268,  0.0053, -0.0348,  0.0056, -0.0118],  # pos 2: like
+  [ 0.0322,  0.0146, -0.0013, -0.0265,  0.0217, -0.0385, -0.0038, -0.0171],  # pos 3: transformers
+  [ 0.0288,  0.0139,  0.0007, -0.0346,  0.0134, -0.0387, -0.0149, -0.0079],  # pos 4: <EOS>
+]
+```
+
+## Interpreting Attention Patterns
+
+Let's look at position 2 ("like") in Head 0:
+
+```
+attention_weights[0][2] = [0.3330, 0.3326, 0.3344, 0.0000, 0.0000]
+```
+
+This means when processing "like":
+- 33.30% attention to `<BOS>`
+- 33.26% attention to `I`
+- 33.44% attention to `like` (itself)
+- Cannot attend to future tokens
+
+The model is spreading attention almost equally across the available context. In a trained model, these patterns would be more meaningful - for example, attention might focus on:
+- **Syntactic dependencies**: verbs attending to their subjects
+- **Coreferences**: pronouns attending to their antecedents
+- **Long-range dependencies**: related concepts far apart in the sequence
+
+## Why Multiple Heads?
+
+With 2 heads computing attention independently:
+- **Head 0** might learn to focus on syntactic structure
+- **Head 1** might learn to focus on semantic relationships
+
+The outputs from both heads will be combined in the next step (multi-head attention concatenation) to create a richer representation that captures different types of relationships simultaneously.
+
+## What's Next
+
+Now that we have attention outputs from both heads, we need to:
+1. **Concatenate** the outputs from both heads
+2. **Project** the concatenated result back to $d_{model}$ dimensions
+3. Apply **residual connections** and **layer normalization**
+
+Let's move on to multi-head attention combination!
