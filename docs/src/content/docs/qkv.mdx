@@ -82,11 +82,17 @@ When we multiply two matrices `A @ B`:
 **Key requirement:** The number of columns in A must equal the number of rows in B!
 
 **The operation:** To compute element `[i, j]` in the result:
+
+$$
+\text{result}_{ij} = \sum_{k=1}^{n} A_{ik} \cdot B_{kj}
+$$
+
+Or in plain notation:
 ```
 result[i, j] = sum of (A[i, k] * B[k, j]) for all k
 ```
 
-In other words, we take row `i` from A, column `j` from B, multiply corresponding elements, and sum them up. This is actually computing the **dot product** between row `i` of A and column `j` of B! So matrix multiplication is really a collection of many dot products organized into a matrix.
+In other words, we take row $i$ from A, column $j$ from B, multiply corresponding elements, and sum them up. This is actually computing the **dot product** between row $i$ of A and column $j$ of B! So matrix multiplication is really a collection of many dot products organized into a matrix.
 
 ### Simple Example
 
@@ -125,7 +131,17 @@ Each row of the result is computed by taking one row from X (one token's embeddi
 
 Now we can compute Q, K, V for each head using matrix multiplication:
 
-```
+$$
+\begin{aligned}
+Q_{head} &= X W_Q^{(head)} \\
+K_{head} &= X W_K^{(head)} \\
+V_{head} &= X W_V^{(head)}
+\end{aligned}
+$$
+
+Or in Python notation:
+
+```python
 Q[head] = X @ W_Q[head]
 K[head] = X @ W_K[head]
 V[head] = X @ W_V[head]

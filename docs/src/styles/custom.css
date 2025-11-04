@@ -1,3 +1,6 @@
+/* Import KaTeX CSS for math rendering */
+@import "katex/dist/katex.min.css";
+
 /* Custom styles for Manual LLM Calculation */
 
 /* Code blocks with better spacing */
