@@ -80,6 +80,38 @@ $$
 \text{weights}_{ij} = \frac{e^{\text{masked\_scores}_{ij}}}{\sum_{k=1}^{n} e^{\text{masked\_scores}_{ik}}}
 $$
 
+**What is softmax?**
+
+The **softmax function** converts a vector of arbitrary real numbers into a probability distribution (all values between 0 and 1, summing to 1). It's called "soft" max because it emphasizes the largest values while still keeping smaller values non-zero.
+
+**How it works:**
+1. **Exponentiate** each value: $e^x$ makes all values positive
+2. **Normalize** by the sum: divide each by the total to make them sum to 1
+
+**Why use softmax?**
+- Creates a valid probability distribution
+- Differentiable (unlike hard max which picks one winner)
+- Emphasizes larger scores but doesn't completely ignore smaller ones
+
+**Example with actual numbers:**
+
+Let's say we have scores: `[0.0003, -0.0011]`
+
+```python
+# Step 1: Exponentiate
+exp_0 = e^0.0003 = 1.0003
+exp_1 = e^(-0.0011) = 0.9989
+sum_exp = 1.0003 + 0.9989 = 1.9992
+
+# Step 2: Normalize
+weight_0 = 1.0003 / 1.9992 = 0.5003
+weight_1 = 0.9989 / 1.9992 = 0.4997
+
+# Result: [0.5003, 0.4997]  ✓ Sums to 1.0
+```
+
+Notice that the slightly higher score (0.0003) gets slightly higher probability (50.03%), but the difference is smoothed out - not a hard "winner takes all."
+
 This gives us the **attention weights** - how much each token should attend to each other token.
 
 ### Step 5: Compute Weighted Sum of Values
