@@ -6,7 +6,7 @@ import rehypeKatex from "rehype-katex";
 // https://astro.build/config
 export default defineConfig({
   site: "https://www.zhubert.com",
-  base: import.meta.env.PROD ? "/manual-llm" : "/",
+  base: import.meta.env.PROD ? "/attention-to-detail" : "/",
   trailingSlash: "always",
   markdown: {
     remarkPlugins: [remarkMath],
@@ -14,14 +14,14 @@ export default defineConfig({
   },
   integrations: [
     starlight({
-      title: "Manual LLM Calculation",
+      title: "Attention to Detail",
       description:
         "A complete forward and backward pass through a transformer, calculated by hand",
       social: [
         {
           icon: "github",
           label: "Github",
-          href: "https://github.com/zhubert/manual-llm",
+          href: "https://github.com/zhubert/attention-to-detail",
         },
       ],
       sidebar: [

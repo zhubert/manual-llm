@@ -1,4 +1,4 @@
-# Manual LLM: A Complete Training Step by Hand
+# Attention to Detail: A Complete Training Step by Hand
 
 An educational project that manually calculates **every single step** of training a tiny transformer model, from tokenization to weight updates. All calculations are shown step-by-step with full mathematical derivations.
 
@@ -48,7 +48,7 @@ Visit http://localhost:4321/ to see the interactive documentation.
 ## Project Structure
 
 ```
-manual-llm/
+attention-to-detail/
 ├── docs/                          # Astro/Starlight documentation site
 │   ├── src/
 │   │   ├── content/docs/          # 14 MDX pages with step-by-step calculations
