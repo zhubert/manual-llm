@@ -1,6 +1,381 @@
 ---
-title: optimizer
-description: Coming soon
+title: "13. AdamW Optimizer"
+description: Using AdamW to update all parameters and complete the training step
 ---
 
-Content in progress...
+We've computed gradients for every parameter in the model. Now we need to **use** those gradients to actually update the weights.
+
+This is where optimization comes in.
+
+We're using **AdamW** — the optimizer used to train GPT, LLaMA, and virtually every modern LLM. It's the industry standard for a reason.
+
+## Why Not Just Subtract the Gradient?
+
+You might think: "We have gradients. Just do `θ = θ - learning_rate * gradient` and we're done."
+
+That's called **stochastic gradient descent (SGD)**, and it's the simplest optimizer. But it has problems:
+
+1. **Same learning rate for all parameters** — Some parameters need big updates, others need small ones. SGD treats them all the same.
+2. **No momentum** — SGD can get stuck in valleys, oscillating back and forth instead of making progress.
+3. **Sensitive to learning rate** — Too high and you diverge. Too low and training takes forever.
+
+AdamW solves all of these.
+
+## What Is AdamW?
+
+AdamW combines three powerful ideas:
+
+1. **Adaptive learning rates** — Each parameter gets its own learning rate based on the history of its gradients
+2. **Momentum** — Updates are smoothed using exponential moving averages, preventing oscillation
+3. **Weight decay** — Regularization applied directly to parameters (not gradients), preventing overfitting
+
+Let's see how it works, step by step.
+
+## AdamW Hyperparameters
+
+We need to choose some hyperparameters:
+
+```python
+learning_rate = 0.001    # α: base learning rate
+beta1 = 0.9              # β₁: exponential decay for first moment (momentum)
+beta2 = 0.999            # β₂: exponential decay for second moment (adaptive LR)
+epsilon = 1e-8           # ε: small constant for numerical stability
+weight_decay = 0.01      # λ: L2 regularization strength
+t = 1                    # time step (this is our first update)
+```
+
+These are standard values used in practice. Let's break down what each one does.
+
+## The AdamW Algorithm
+
+For each parameter $\theta$, AdamW maintains two **moment estimates**:
+
+1. **First moment** $m$ — exponential moving average of gradients (momentum)
+2. **Second moment** $v$ — exponential moving average of squared gradients (for adaptive learning rate)
+
+Both start at zero.
+
+Here's the update rule:
+
+### Step 1: Update Biased Moment Estimates
+
+$$
+m_t = \beta_1 \cdot m_{t-1} + (1 - \beta_1) \cdot g_t
+$$
+
+$$
+v_t = \beta_2 \cdot v_{t-1} + (1 - \beta_2) \cdot g_t^2
+$$
+
+Where $g_t$ is the gradient at time $t$.
+
+**What's happening:**
+- $m_t$ is a smoothed average of recent gradients (momentum)
+- $v_t$ tracks the variance of recent gradients (for adaptive learning rate)
+- The $\beta$ values control how much history we remember (0.9 means 90% old, 10% new)
+
+### Step 2: Bias Correction
+
+Since $m$ and $v$ start at zero, early estimates are biased toward zero. We correct for this:
+
+$$
+\hat{m}_t = \frac{m_t}{1 - \beta_1^t}
+$$
+
+$$
+\hat{v}_t = \frac{v_t}{1 - \beta_2^t}
+$$
+
+At $t=1$:
+- $1 - \beta_1^1 = 1 - 0.9 = 0.1$
+- $1 - \beta_2^1 = 1 - 0.999 = 0.001$
+
+So we're dividing by small numbers, which boosts the estimates to compensate for the zero initialization.
+
+### Step 3: Weight Decay
+
+This is what makes it "AdamW" instead of "Adam".
+
+Instead of adding weight decay to the gradient (like Adam does), AdamW applies it directly to the parameter:
+
+$$
+\theta_{\text{decayed}} = \theta \cdot (1 - \alpha \cdot \lambda)
+$$
+
+This is a subtle but important difference — it makes weight decay behave independently from the gradient-based update.
+
+### Step 4: Compute the Update
+
+Finally, we compute the adaptive learning rate and apply the update:
+
+$$
+\theta_{\text{new}} = \theta_{\text{decayed}} - \frac{\alpha \cdot \hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon}
+$$
+
+**What's happening:**
+- The denominator $\sqrt{\hat{v}_t}$ adaptively scales the learning rate
+- Parameters with large, consistent gradients get smaller effective learning rates
+- Parameters with small, noisy gradients get larger effective learning rates
+- The $\epsilon$ prevents division by zero
+
+This is the magic of AdamW — every parameter automatically gets the learning rate it needs.
+
+## Example: Updating E_token[1][0]
+
+Let's walk through one parameter in complete detail.
+
+We're updating the first element of the `<BOS>` token embedding.
+
+**Current state:**
+
+```
+Current value: θ = 0.024634
+Gradient:      g = -0.352893
+First moment:  m₀ = 0.000000  (initialized to zero)
+Second moment: v₀ = 0.000000  (initialized to zero)
+```
+
+The negative gradient means we should **increase** this parameter value (since we subtract the gradient).
+
+### Step 1: Update Biased Moments
+
+$$
+m_1 = \beta_1 \cdot m_0 + (1 - \beta_1) \cdot g
+$$
+
+$$
+m_1 = 0.9 \times 0 + 0.1 \times (-0.352893) = -0.035289
+$$
+
+$$
+v_1 = \beta_2 \cdot v_0 + (1 - \beta_2) \cdot g^2
+$$
+
+$$
+v_1 = 0.999 \times 0 + 0.001 \times (-0.352893)^2 = 0.001 \times 0.124534 = 0.000125
+$$
+
+### Step 2: Bias Correction
+
+$$
+\hat{m} = \frac{m_1}{1 - \beta_1^1} = \frac{-0.035289}{0.1} = -0.352893
+$$
+
+$$
+\hat{v} = \frac{v_1}{1 - \beta_2^1} = \frac{0.000125}{0.001} = 0.124534
+$$
+
+Notice that after bias correction, $\hat{m}$ exactly equals our gradient! This makes sense — it's the first step, so the smoothed average should just be the gradient itself.
+
+### Step 3: Weight Decay
+
+$$
+\theta_{\text{decayed}} = \theta \cdot (1 - \alpha \cdot \lambda)
+$$
+
+$$
+\theta_{\text{decayed}} = 0.024634 \cdot (1 - 0.001 \cdot 0.01) = 0.024634 \cdot 0.99999 = 0.024634
+$$
+
+The decay is tiny — just 0.000000246. Weight decay has a small effect when parameters are already small.
+
+### Step 4: Compute Update
+
+First, the adaptive learning rate:
+
+$$
+\text{adaptive LR} = \frac{\alpha}{\sqrt{\hat{v}} + \epsilon} = \frac{0.001}{\sqrt{0.124534} + 10^{-8}} = \frac{0.001}{0.352893} = 0.002834
+$$
+
+The adaptive learning rate is **2.8 times** the base learning rate! This parameter is getting a boost because its gradient is large.
+
+Now the update:
+
+$$
+\text{update} = \hat{m} \cdot \text{adaptive LR} = -0.352893 \times 0.002834 = -0.001000
+$$
+
+Finally:
+
+$$
+\theta_{\text{new}} = \theta_{\text{decayed}} - \text{update} = 0.024634 - (-0.001000) = 0.025634
+$$
+
+**Result:** The parameter increased from $0.024634$ to $0.025634$.
+
+The gradient was negative, so we moved in the positive direction. That's exactly what we want.
+
+## Updating All Parameters
+
+We apply this same process to **every single parameter** in the model.
+
+Here are the results for a few parameters:
+
+### Embeddings
+
+```python
+# Token embeddings
+E_token[1][0]: 0.024634 → 0.025634  (change: +0.001000)
+
+# Position embeddings
+E_pos[0][0]: 0.122694 → 0.123693   (change: +0.001000)
+```
+
+### Attention Weights
+
+```python
+# Query projection (head 0)
+Wq[0][0][0]: -0.014409 → -0.015409  (change: -0.001000)
+
+# Output projection
+Wo[0][0]: -0.014409 → -0.015409     (change: -0.001000)
+```
+
+### Feed-Forward Network
+
+```python
+# First linear layer
+W1[0][0]: -0.014409 → -0.013409     (change: +0.001000)
+b1[0]:     0.128939 →  0.129937     (change: +0.001000)
+
+# Second linear layer
+W2[0][0]: -0.060817 → -0.061817     (change: -0.001000)
+b2[0]:     0.000000 → -0.001000     (change: -0.001000)
+```
+
+### Layer Normalization
+
+```python
+gamma[0]: 1.000000 → 0.998990  (change: -0.001010)
+beta[0]:  0.000000 → -0.001000 (change: -0.001000)
+```
+
+### Language Modeling Head
+
+```python
+W_lm[0][0]: -0.014409 → -0.015409  (change: -0.001000)
+```
+
+Notice that most updates are around ±0.001. That's expected — at $t=1$, the bias correction amplifies the learning rate, but AdamW is still relatively conservative.
+
+## Update Statistics
+
+Our model has **3,456 total parameters**. All of them were updated.
+
+Here are the average absolute changes per parameter group:
+
+```
+Token embeddings:       0.000667  (smaller — not all tokens were used)
+Position embeddings:    0.000800
+Attention weights:      ~0.001000
+FFN weights:            ~0.001000
+Layer norm:             0.001000
+LM head:                0.001000
+```
+
+The token embeddings changed less because not all tokens appeared in our training example. Tokens like `<PAD>` had zero gradient, so they didn't update.
+
+Position embeddings and attention/FFN weights all updated by roughly the learning rate ($0.001$) because this is the first step and gradients are moderate.
+
+## What Did We Accomplish?
+
+We started with:
+- A loss of **1.865** (essentially random predictions)
+- Gradients for every parameter
+
+Now we have:
+- **Updated weights** that should produce better predictions
+- **Moment estimates** stored for the next optimization step
+
+If we ran the forward pass again with these new weights, the loss would be **lower**. The model has learned.
+
+## Why AdamW Works So Well
+
+Let's appreciate what just happened:
+
+1. **Automatic per-parameter learning rates** — The embedding for `<BOS>` got a 2.8× boost because its gradient was large. Other parameters got different rates. We didn't have to tune this manually.
+
+2. **Momentum smoothing** — If we trained for multiple steps, the first moment $m$ would smooth out noisy gradients, preventing oscillation.
+
+3. **Adaptive scaling** — Parameters with large gradients get **smaller** effective learning rates (because $\sqrt{\hat{v}}$ is large). This prevents instability.
+
+4. **Clean weight decay** — Regularization is applied independently of gradient noise, keeping weights from growing too large.
+
+This is why AdamW is the default for training LLMs. It's robust, stable, and requires minimal hyperparameter tuning.
+
+## The Complete Training Loop
+
+We've now completed **one full training step**:
+
+1. ✅ **Forward pass** — Computed embeddings, attention, FFN, layer norm, and loss
+2. ✅ **Backward pass** — Computed gradients for every parameter via backpropagation
+3. ✅ **Optimization** — Updated every parameter using AdamW
+
+This is what training a neural network means. You repeat this loop thousands or millions of times:
+
+```
+for epoch in range(num_epochs):
+    for batch in data:
+        # Forward pass
+        predictions = model(batch)
+        loss = compute_loss(predictions, targets)
+
+        # Backward pass
+        gradients = backpropagate(loss)
+
+        # Optimization
+        model.parameters = adamw_update(model.parameters, gradients)
+```
+
+Each iteration, the loss gets smaller. The model gets better.
+
+## What We've Learned
+
+We calculated — by hand — a complete training step through a transformer:
+
+- **296 forward pass calculations** (embeddings, attention, FFN, layer norm, loss)
+- **412 backward pass calculations** (gradients via chain rule and Jacobians)
+- **3,456 parameter updates** (via AdamW)
+
+**Total: 4,164 individual calculations.**
+
+That's what happens in **one training step** on **one example sentence**.
+
+Real LLMs train on billions of tokens. GPT-3 trained on 300 billion tokens. Each token goes through this same process — forward, backward, optimize.
+
+That's why training LLMs costs millions of dollars. It's trillions of trillions of calculations.
+
+But now you understand exactly what those calculations are doing.
+
+## Next Steps (If We Continued Training)
+
+If we ran another training step, here's what would happen:
+
+1. **Forward pass with new weights** — Use the updated parameters we just computed
+2. **Compute new loss** — It should be lower than 1.865
+3. **Backpropagate again** — Compute new gradients
+4. **Update with AdamW again** — But now $t=2$, and the moment estimates $m$ and $v$ aren't zero anymore
+
+After thousands of iterations, the model would start generating coherent text.
+
+After millions of iterations (on diverse data), you'd have a language model.
+
+That's how LLMs are born.
+
+## Closing Thoughts
+
+You've made it through the entire pipeline.
+
+You've seen every matrix multiplication, every activation function, every gradient calculation, every weight update.
+
+Nothing was hidden. No magic. Just math.
+
+When someone says "a transformer learns by gradient descent," you now know **exactly** what that means — down to the individual floating-point operations.
+
+When you use ChatGPT or Claude, you know what's happening under the hood. It's this process, scaled up, repeated billions of times.
+
+You understand it not because someone explained it in abstract terms, but because you **calculated it yourself**.
+
+That's the difference between knowing about something and truly understanding it.
+
+You understand transformers.
