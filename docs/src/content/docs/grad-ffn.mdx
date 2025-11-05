@@ -28,28 +28,73 @@ Now we're going backward. We have $\frac{\partial L}{\partial \text{layer\_norm\
 
 ## Step 1: Backward Through Layer Normalization
 
-Layer normalization is mathematically complex to backpropagate through because every output depends on **all** inputs (due to the mean and variance calculations).
+Layer normalization is mathematically complex to backpropagate through because every output depends on **all** inputs (due to the mean and variance calculations). Just like softmax, we need the full Jacobian!
 
-The full gradient requires computing a Jacobian matrix and involves terms like:
+### The Forward Pass
+
+Recall the layer norm formula:
+
+1. Compute mean: $\mu = \frac{1}{d} \sum_i x_i$
+2. Compute variance: $\sigma^2 = \frac{1}{d} \sum_i (x_i - \mu)^2$
+3. Normalize: $\hat{x}_i = \frac{x_i - \mu}{\sqrt{\sigma^2 + \epsilon}}$
+4. Scale and shift: $y_i = \gamma_i \hat{x}_i + \beta_i$
+
+### The Jacobian Problem
+
+Every normalized output $\hat{x}_i$ depends on **all** inputs through $\mu$ and $\sigma$. This creates a full Jacobian matrix, not just diagonal elements.
+
+### The Complete Backward Pass
+
+The gradient computation requires carefully applying the chain rule through the normalization.
+
+**Step 1a: Gradients for $\gamma$ and $\beta$**
+
+These are straightforward:
 
 $$
-\frac{\partial \text{LayerNorm}(x)_i}{\partial x_j}
+\frac{\partial L}{\partial \gamma_i} = \sum_{pos} \frac{\partial L}{\partial y_i[pos]} \cdot \hat{x}_i[pos]
 $$
 
-For educational purposes, we'll use a **simplified approximation**: we pass the gradients through directly. This works reasonably well when $\gamma \approx 1$ and $\beta \approx 0$ (which they are in our case).
+$$
+\frac{\partial L}{\partial \beta_i} = \sum_{pos} \frac{\partial L}{\partial y_i[pos]}
+$$
 
-In practice, deep learning frameworks handle this complexity automatically.
+**Step 1b: Gradient through normalization**
 
-**Simplified backward:**
+For the normalized values:
 
 $$
-\frac{\partial L}{\partial \text{residual}} \approx \frac{\partial L}{\partial \text{layer\_norm\_output}}
+\frac{\partial L}{\partial \hat{x}_i} = \gamma_i \cdot \frac{\partial L}{\partial y_i}
 $$
+
+**Step 1c: The Jacobian through $\mu$ and $\sigma$**
+
+This is where it gets interesting. The gradient with respect to the input is:
+
+$$
+\frac{\partial L}{\partial x_i} = \frac{1}{\sigma} \left( \frac{\partial L}{\partial \hat{x}_i} - \frac{1}{d}\sum_j \frac{\partial L}{\partial \hat{x}_j} - \hat{x}_i \cdot \frac{1}{d}\sum_j \hat{x}_j \frac{\partial L}{\partial \hat{x}_j} \right)
+$$
+
+This formula accounts for:
+- The direct derivative through normalization
+- The coupling through the mean (the $\frac{1}{d}\sum_j$ term)
+- The coupling through the variance (the $\hat{x}_i \cdot \frac{1}{d}\sum_j$ term)
+
+### Numerical Results
+
+With the complete Jacobian:
 
 ```python
-dL/dresidual[0] = [ 0.0142,  0.0479, -0.0057, -0.0316,  0.0278, -0.2635,  0.1148,  0.1195,
-                   -0.0411, -0.1391, -0.0216, -0.0314, -0.0667, -0.0314,  0.1478,  0.0244]
+dL/dgamma: [ 0.1193, -0.1144, -0.1698,  0.0036, -0.0150,  0.4222,  0.0410, -0.0029,
+            -0.0088,  0.0244, -0.0082, -0.0157,  0.0194, -0.0560,  0.0258,  0.0749]
+dL/dbeta:  [ 0.1011,  0.2154,  0.1045,  0.0173,  0.0586, -0.3516, -0.0472,  0.0095,
+            -0.0158, -0.0545,  0.0058,  0.0437, -0.0277, -0.0303,  0.0181, -0.2259]
+
+dL/dresidual[0]: [ 0.0078,  0.6811,  0.3442, -0.4390,  0.4613, -2.4828,  1.6523,  1.3722,
+                  -0.4716, -1.3366, -0.3174, -0.1642, -0.5059, -0.5174,  1.3532,  0.3627]
 ```
+
+Notice how much larger these gradients are compared to a simple pass-through! The Jacobian properly accounts for how changing one input affects all outputs through the normalization statistics.
 
 ## Step 2: Backward Through Residual Connection
 
@@ -164,7 +209,9 @@ $$
 This gives us gradients that flow back to the multi-head attention output:
 
 ```python
-dL/dmulti_head_output (from FFN path): [-0.0027,  0.0054, -0.0056,  0.0351,  0.0221, -0.0151, ...]
+dL/dmulti_head_output (from FFN path): [-0.0455,  0.0873,  0.0265,  0.3470,  0.2680, -0.2172,
+                                        -0.0797,  0.1364,  0.0728, -0.0719,  0.1163, -0.0594,
+                                         0.0575,  0.1195,  0.1263,  0.0365]
 ```
 
 ## Step 4: Combine Gradients from Both Paths
@@ -181,23 +228,31 @@ $$
 $$
 
 ```python
-dL/dmulti_head_output[0] (total): [ 0.0115,  0.0534, -0.0112,  0.0035,  0.0498, -0.2786,  0.1054,  0.1361,
-                                   -0.0330, -0.1396, -0.0088, -0.0366, -0.0591, -0.0190,  0.1660,  0.0240]
+dL/dmulti_head_output[0] (total): [-0.0377,  0.7683,  0.3707, -0.0920,  0.7293, -2.7000,
+                                    1.5726,  1.5086, -0.3988, -1.4085, -0.2011, -0.2236,
+                                   -0.4484, -0.3979,  1.4795,  0.3992]
 ```
 
 This is the gradient we'll use to backpropagate through multi-head attention.
 
+Notice how much more significant these gradients are with the proper layer norm Jacobian! The accurate computation accounts for all dependencies, giving us the true gradient signal needed for learning.
+
 ## What We've Computed
 
-Starting from $\frac{\partial L}{\partial \text{layer\_norm\_output}}$, we've computed:
+Starting from $\frac{\partial L}{\partial \text{layer\_norm\_output}}$, we've computed **accurately**:
 
-1. ✅ $\frac{\partial L}{\partial W_1}$, $\frac{\partial L}{\partial b_1}$ — gradients for first FFN layer
-2. ✅ $\frac{\partial L}{\partial W_2}$, $\frac{\partial L}{\partial b_2}$ — gradients for second FFN layer
-3. ✅ $\frac{\partial L}{\partial \text{multi\_head\_output}}$ — gradients to continue backprop
+1. ✅ $\frac{\partial L}{\partial \gamma}$, $\frac{\partial L}{\partial \beta}$ — layer norm scale/shift parameters (with full Jacobian)
+2. ✅ $\frac{\partial L}{\partial W_1}$, $\frac{\partial L}{\partial b_1}$ — gradients for first FFN layer
+3. ✅ $\frac{\partial L}{\partial W_2}$, $\frac{\partial L}{\partial b_2}$ — gradients for second FFN layer
+4. ✅ $\frac{\partial L}{\partial \text{multi\_head\_output}}$ — gradients to continue backprop
 
-## The Beauty of Residual Connections
+All computed with complete mathematical rigor. No approximations.
 
-Notice how the residual connection allows gradients to flow **directly** from the output back to the attention layer, bypassing the FFN entirely.
+## Key Insights
+
+**Layer Normalization Jacobian**: Just like softmax in attention, layer norm creates dependencies between all elements through mean and variance. The full Jacobian is essential for accurate gradients.
+
+**Residual Connections**: Notice how the residual connection allows gradients to flow **directly** from the output back to the attention layer, bypassing the FFN entirely.
 
 Without residuals, all gradients would have to flow through the FFN (and its non-linearity), potentially vanishing or exploding. With residuals, there's always a clean gradient path.
 
