@@ -15,46 +15,100 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## Introduction
 
-Ever wonder how transformers actually work under the hood? I mean really work, at the level of matrices and gradients and actual numbers?
+Ever wonder how transformers **actually** work under the hood? I mean really work, at the level of matrices and gradients and actual numbers?
 
-Me too.
+You can read about attention mechanisms and backpropagation in a textbook. You can use PyTorch and watch the loss go down. But there's something different about seeing **every single calculation** laid out in front of you - watching how a $6 \times 16$ embedding matrix multiplies with a $16 \times 16$ query weight matrix, seeing exactly how the chain rule propagates gradients through layer normalization, understanding why AdamW needs bias correction terms.
 
-This is an educational project where we're going to manually calculate a complete training step through a tiny transformer model. And when I say "manually," I mean we're going to compute every single operation by hand (okay, with Python doing the arithmetic, because I'm not a masochist).
+**This project calculates a complete training step through a transformer, by hand.**
 
-Here's what we're working with:
+We're going to take the sentence "the cat sat on the mat" (6 tokens) through a tiny GPT-style model:
+- **Forward pass:** From raw text → embeddings → attention → feed-forward → loss (7 pages)
+- **Backward pass:** Computing gradients for every single parameter via backpropagation (5 pages)
+- **Optimization:** Applying AdamW updates with momentum and bias correction (1 page)
 
-- **Model size:** 16-dimensional embeddings, 2 attention heads (tiny enough to be tractable)
-- **Input:** One short text sequence
-- **Process:** Tokenization → Embeddings → Attention → Feed-Forward → Loss → Gradients → Weight Updates
+Every matrix multiplication is shown step-by-step. Every gradient derivation is complete. Every dimension is tracked. Nothing is hidden behind library abstractions or handwaved as "trivial."
 
-By the end, you'll have seen every matrix multiplication, every softmax, every gradient calculation. The goal is to build a deep, visceral understanding of how these models work at the mathematical level.
+By the end, you'll have a deep, visceral understanding of transformer mathematics - the kind that only comes from doing the calculations yourself.
 
 ## What We'll Calculate
 
-<CardGrid>
-  <Card title="Forward Pass" icon="forward">
-    Transform input text into predictions through embeddings, attention, and feed-forward layers
+<CardGrid stagger>
+  <Card title="Forward Pass (7 pages)" icon="forward">
+    **Tokenization → Embeddings → QKV Projections → Attention Scores → Multi-Head Attention → Feed-Forward Network → Layer Normalization → Cross-Entropy Loss**
+
+    Watch the input flow through each layer with complete matrix operations. See how attention weights emerge from scaled dot products and how GELU activation transforms hidden states.
   </Card>
 
-  <Card title="Backward Pass" icon="left-arrow">
-    Calculate gradients for every parameter using backpropagation
+  <Card title="Backward Pass (5 pages)" icon="left-arrow">
+    **Loss Gradients → Output Layer → FFN & LayerNorm → Attention → Embeddings**
+
+    Trace gradients backward through the network using the chain rule. Derive Jacobian matrices for softmax and layer normalization. Compute gradients for every weight, bias, and embedding.
   </Card>
 
-  <Card title="Optimization" icon="setting">
-    Update weights using the AdamW optimizer
+  <Card title="Optimization (1 page)" icon="setting">
+    **AdamW Weight Updates with Momentum & Bias Correction**
+
+    Apply the complete AdamW optimizer algorithm with first and second moment estimates, bias correction terms, and weight decay. See how each parameter moves toward better values.
+  </Card>
+
+  <Card title="Python Scripts (12 files)" icon="open-book">
+    **Reproducible Calculations with NumPy**
+
+    Every page is backed by a Python script that performs the exact calculations shown in the docs. Deterministic initialization, intermediate value saving, and step-by-step verification.
   </Card>
 </CardGrid>
 
 ## Architecture
 
-We're using a simplified GPT-style decoder-only transformer (the same architecture family as ChatGPT, just... way tinier):
+We're using a **GPT-style decoder-only transformer** - the same architecture family as ChatGPT, Claude, and Llama, just scaled down to be humanly tractable:
 
-- **Vocabulary size:** Small (for illustration)
-- **d_model:** 16 (embedding dimension)
-- **Attention heads:** 2
-- **d_ff:** 64 (feed-forward hidden dimension)
-- **Layers:** 1 (to keep calculations manageable)
+| Component | Value | Why This Size? |
+|-----------|-------|----------------|
+| **d_model** | 16 | Small enough to write out full matrices, large enough to be realistic |
+| **num_heads** | 2 | Multiple heads to show how multi-head attention combines (d_k = d_v = 8) |
+| **d_ff** | 64 | Standard 4× expansion in feed-forward layer |
+| **vocab_size** | 10 | Our tiny vocabulary: "the", "cat", "sat", "on", "mat", etc. |
+| **num_layers** | 1 | One complete transformer block (you can extrapolate to N layers) |
+| **max_len** | 6 | Length of "the cat sat on the mat" |
 
-Look, I know. A real transformer has billions of parameters across dozens of layers. But the math is exactly the same whether you have 16 dimensions or 4096. We're just keeping things small enough that we can actually see what's happening.
+**Total parameters: ~2,600** (versus 175 billion for GPT-3)
 
-Ready? Let's dive in.
+The math is identical whether you have 16 dimensions or 4096. We're just keeping things small enough that you can actually see what's happening in every matrix multiplication, understand every gradient, and verify every calculation.
+
+## Who Is This For?
+
+This project is ideal if you:
+
+- **Want to deeply understand transformers** beyond high-level explanations
+- **Are learning ML/DL** and want to see the mathematics, not just the PyTorch code
+- **Already use transformers** but feel shaky on the mathematical foundations
+- **Are implementing novel architectures** and need to understand the gradient flows
+- **Learn best by example** - seeing actual numbers instead of abstract notation
+- **Have taken calculus** (chain rule, partial derivatives) but want to see it applied
+
+You *don't* need a PhD. You *do* need patience and a willingness to follow matrix calculations step by step.
+
+## Why Calculate By Hand?
+
+**Understanding vs. Using**: You can drive a car without knowing how the engine works. But if you want to *design* cars, you need to understand combustion, torque, and thermodynamics. Same with transformers.
+
+**Debugging intuition**: When your transformer isn't training properly, understanding what's happening in each gradient helps you diagnose whether it's vanishing gradients, attention collapse, or something else.
+
+**No magic**: Libraries like PyTorch make training easy but hide the details. This project reveals what `loss.backward()` actually does - all 5 pages of chain rule applications.
+
+**Deep learning**: The best way to learn is to do. We're doing every calculation, so you'll learn it deeply.
+
+## Companion Project
+
+This is a companion to the [transformer](https://github.com/zhubert/transformer) repository:
+
+- **This project (manual-llm)**: Shows you the mathematics - what's happening inside
+- **That project (transformer)**: Shows you the engineering - how to build it in PyTorch
+
+Together, they provide a complete picture: the mathematical foundations and the practical implementation.
+
+## Ready to Start?
+
+Click the button at the top to begin with tokenization, or jump to any section using the sidebar.
+
+Every page builds on the previous one, so following in order is recommended for your first read-through. All calculations are verified by Python scripts in the `scripts/` directory.
