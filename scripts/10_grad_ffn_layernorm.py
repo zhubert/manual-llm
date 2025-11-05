@@ -74,13 +74,72 @@ print("\n" + "=" * 80)
 print("2. Backward Through Layer Normalization")
 print("=" * 80)
 print("Layer norm is complex because each output depends on ALL inputs (due to mean/variance).")
-print("For simplicity in this educational example, we'll use a simplified gradient.")
-print("In practice, you'd compute the full Jacobian through the normalization.")
+print("Similar to softmax, we need the full Jacobian!")
+print()
+print("Layer Norm formula:")
+print("  1. μ = mean(x)")
+print("  2. σ² = variance(x)")
+print("  3. x_norm = (x - μ) / √(σ² + ε)")
+print("  4. y = γ ⊙ x_norm + β")
+print()
+print("The backward pass requires computing:")
+print("  dL/dx = (γ/σ) ⊙ (dL/dy - mean(dL/dy) - x_norm ⊙ mean(x_norm ⊙ dL/dy))")
+print()
+print("Where the mean operations account for the Jacobian of the normalization.")
 
-# Simplified: just pass gradients through (assumes gamma=1, beta=0, and ignores mean/variance coupling)
-dL_dresidual = dL_dlayer_norm_output  # Simplified approximation
+# Compute gradients for gamma and beta
+dL_dgamma = [0.0] * d_model
+dL_dbeta = [0.0] * d_model
 
-print(f"  dL/dresidual_output[0]: {format_vector(dL_dresidual[0])}")
+# Need to recompute normalized values from forward pass
+normalized = []
+means = []
+stds = []
+
+for pos in range(seq_len):
+    mean_val = sum(residual_output[pos]) / d_model
+    var_val = sum((x - mean_val) ** 2 for x in residual_output[pos]) / d_model
+    std_val = math.sqrt(var_val + 1e-5)
+
+    means.append(mean_val)
+    stds.append(std_val)
+
+    x_norm = [(x - mean_val) / std_val for x in residual_output[pos]]
+    normalized.append(x_norm)
+
+    # Accumulate gamma and beta gradients
+    for i in range(d_model):
+        dL_dgamma[i] += dL_dlayer_norm_output[pos][i] * x_norm[i]
+        dL_dbeta[i] += dL_dlayer_norm_output[pos][i]
+
+print(f"  dL/dgamma: {format_vector(dL_dgamma)}")
+print(f"  dL/dbeta: {format_vector(dL_dbeta)}")
+
+# Backprop through layer norm using full Jacobian
+dL_dresidual = []
+
+for pos in range(seq_len):
+    # Gradient w.r.t. normalized values
+    dL_dx_norm = [gamma[i] * dL_dlayer_norm_output[pos][i] for i in range(d_model)]
+
+    # Compute terms for Jacobian
+    mean_dL_dx_norm = sum(dL_dx_norm) / d_model
+    mean_xnorm_dL_dx_norm = sum(normalized[pos][i] * dL_dx_norm[i] for i in range(d_model)) / d_model
+
+    # Apply layer norm Jacobian
+    dL_dx = []
+    for i in range(d_model):
+        grad = (1.0 / stds[pos]) * (
+            dL_dx_norm[i] - mean_dL_dx_norm - normalized[pos][i] * mean_xnorm_dL_dx_norm
+        )
+        dL_dx.append(grad)
+
+    dL_dresidual.append(dL_dx)
+
+print(f"\n  Example gradient computation for position 0:")
+print(f"    mean = {means[0]:.6f}, std = {stds[0]:.6f}")
+print(f"    mean(dL/dx_norm) = {sum(dL_dx_norm) / d_model:.6f}")
+print(f"    dL/dresidual_output[0]: {format_vector(dL_dresidual[0])}")
 
 print("\n" + "=" * 80)
 print("3. Backward Through Residual Connection")
@@ -217,6 +276,8 @@ data = {
     'dL_db1': dL_db1,
     'dL_dW2': dL_dW2,
     'dL_db2': dL_db2,
+    'dL_dgamma': dL_dgamma,
+    'dL_dbeta': dL_dbeta,
     'dL_dmulti_head_output': dL_dmulti_head_total
 }
 with open('data/grad_ffn.pkl', 'wb') as f:

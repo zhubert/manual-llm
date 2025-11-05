@@ -1,6 +1,6 @@
 ---
 title: "11. Gradients: Attention"
-description: Backpropagating through multi-head attention
+description: Complete backpropagation through multi-head attention including softmax Jacobian
 ---
 
 We're almost there.
@@ -19,109 +19,193 @@ Each of these needs gradients. It's a lot.
 
 Attention gradients are mathematically complex because:
 
-1. **Softmax** creates dependencies between all positions
+1. **Softmax** creates dependencies between all positions (requires Jacobian)
 2. **Matrix multiplications** create cross-dependencies between dimensions
 3. **Causal masking** affects gradient flow asymmetrically
 4. **Multiple heads** mean we're doing this several times in parallel
 
-In practice, deep learning frameworks (PyTorch, TensorFlow) handle all this automatically. The gradient computation is non-trivial, involving careful application of the chain rule through multiple interdependent operations.
+In practice, deep learning frameworks (PyTorch, TensorFlow) handle all this automatically. But for this educational project, we'll compute **the complete, accurate gradients** to truly understand what's happening.
 
-## Our Approach: Simplified Gradients
+## Complete Backward Pass Through Attention
 
-For this educational project, we'll use a **simplified approximation** of attention gradients.
+Let's work backward through each operation. We start with $\frac{\partial L}{\partial \text{multi\_head\_output}}$ from the previous layer.
 
-Why? Because implementing full attention backpropagation by hand would require:
-- Backprop through softmax (involves Jacobian matrices)
-- Backprop through scaled dot-product (matrix calculus)
-- Handling the causal mask in gradients
-- Managing gradient flow through concatenation and splitting
+### Step 1: Backprop Through Output Projection
 
-That's a lot of matrix calculus for what is fundamentally a pedagogical exercise.
-
-**Simplified backward through attention:**
-
-We backpropagate through the output projection $W_o$ to get gradients for the input embeddings:
-
+**Forward pass:**
 $$
-\frac{\partial L}{\partial X} = W_o^T \cdot \frac{\partial L}{\partial \text{multi\_head\_output}}
+\text{multi\_head\_output} = \text{concat} \cdot W_o^T
 $$
 
-This gives us:
+where concat is the concatenation of all head outputs.
+
+**Backward pass:**
+$$
+\frac{\partial L}{\partial \text{concat}}[pos] = W_o \cdot \frac{\partial L}{\partial \text{multi\_head\_output}}[pos]
+$$
+
+$$
+\frac{\partial L}{\partial W_o} = \sum_{pos} \frac{\partial L}{\partial \text{multi\_head\_output}}[pos]^T \otimes \text{concat}[pos]
+$$
+
+### Step 2: Split Gradient by Heads
+
+The concatenated output was formed by concatenating the outputs from each head:
+$$
+\text{concat}[pos] = [\text{head}_0[pos], \text{head}_1[pos], \ldots]
+$$
+
+We split $\frac{\partial L}{\partial \text{concat}}$ back into per-head gradients:
+$$
+\frac{\partial L}{\partial \text{head}_h}[pos] = \frac{\partial L}{\partial \text{concat}}[pos][h \cdot d_{\text{head}} : (h+1) \cdot d_{\text{head}}]
+$$
+
+### Step 3a: Backprop Through Attention Output
+
+For each head, the forward pass computed:
+$$
+\text{attention\_output}[i] = \sum_j \text{attention\_weights}[i,j] \cdot V[j]
+$$
+
+**Gradients:**
+
+For the value matrix $V$:
+$$
+\frac{\partial L}{\partial V[j]} = \sum_i \text{attention\_weights}[i,j] \cdot \frac{\partial L}{\partial \text{attention\_output}[i]}
+$$
+
+For the attention weights:
+$$
+\frac{\partial L}{\partial \text{attention\_weights}[i,j]} = \frac{\partial L}{\partial \text{attention\_output}[i]} \cdot V[j]
+$$
+
+### Step 3b: Backprop Through Softmax — THE JACOBIAN
+
+This is the key step! The forward pass computed:
+$$
+\text{attention\_weights}[i] = \text{softmax}(\text{scores\_masked}[i])
+$$
+
+For a softmax function $s = \text{softmax}(x)$, the **Jacobian** is:
+$$
+\frac{\partial s_j}{\partial x_k} = s_j \cdot (\delta_{jk} - s_k)
+$$
+
+where $\delta_{jk}$ is the Kronecker delta (1 if $j=k$, 0 otherwise).
+
+Using the chain rule, for each position $i$:
+$$
+\frac{\partial L}{\partial \text{scores\_masked}[i,k]} = \sum_j \frac{\partial L}{\partial \text{attention\_weights}[i,j]} \cdot \frac{\partial \text{attention\_weights}[i,j]}{\partial \text{scores\_masked}[i,k]}
+$$
+
+This simplifies to:
+$$
+\frac{\partial L}{\partial \text{scores\_masked}[i,k]} = \text{attention\_weights}[i,k] \cdot \left( \frac{\partial L}{\partial \text{attention\_weights}[i,k]} - \sum_j \text{attention\_weights}[i,j] \cdot \frac{\partial L}{\partial \text{attention\_weights}[i,j]} \right)
+$$
+
+Or more compactly:
+$$
+\frac{\partial L}{\partial \text{scores\_masked}[i]} = s[i] \odot \left( \frac{\partial L}{\partial s[i]} - \left( s[i] \cdot \frac{\partial L}{\partial s[i]} \right) \right)
+$$
+
+where $\odot$ is element-wise multiplication and the dot represents the dot product.
+
+### Step 3c: Backprop Through Causal Mask
+
+The mask set future positions to $-\infty$:
+$$
+\text{scores\_masked}[i,j] = \begin{cases}
+\text{scores\_scaled}[i,j] & \text{if } j \leq i \\
+-\infty & \text{otherwise}
+\end{cases}
+$$
+
+Gradients don't flow through masked positions:
+$$
+\frac{\partial L}{\partial \text{scores\_scaled}[i,j]} = \begin{cases}
+\frac{\partial L}{\partial \text{scores\_masked}[i,j]} & \text{if } j \leq i \\
+0 & \text{otherwise}
+\end{cases}
+$$
+
+### Step 3d: Backprop Through Scaling
+
+The forward pass divided by $\sqrt{d_k}$:
+$$
+\text{scores\_scaled} = \frac{\text{scores\_raw}}{\sqrt{d_k}}
+$$
+
+Backward:
+$$
+\frac{\partial L}{\partial \text{scores\_raw}} = \frac{1}{\sqrt{d_k}} \cdot \frac{\partial L}{\partial \text{scores\_scaled}}
+$$
+
+### Step 3e: Backprop Through $Q \cdot K^T$
+
+The forward pass computed:
+$$
+\text{scores\_raw}[i,j] = Q[i] \cdot K[j]
+$$
+
+**Gradients:**
+$$
+\frac{\partial L}{\partial Q[i]} = \sum_j \frac{\partial L}{\partial \text{scores}[i,j]} \cdot K[j]
+$$
+
+$$
+\frac{\partial L}{\partial K[j]} = \sum_i \frac{\partial L}{\partial \text{scores}[i,j]} \cdot Q[i]
+$$
+
+### Step 4: Backprop Through Q/K/V Projections
+
+The forward pass computed:
+$$
+Q = X \cdot W_q, \quad K = X \cdot W_k, \quad V = X \cdot W_v
+$$
+
+where $W_q, W_k, W_v$ are $[d_{\text{model}}, d_{\text{head}}]$ matrices.
+
+**Weight gradients:**
+$$
+\frac{\partial L}{\partial W_q} = X^T \cdot \frac{\partial L}{\partial Q} = \sum_{pos} X[pos]^T \otimes \frac{\partial L}{\partial Q[pos]}
+$$
+
+And similarly for $W_k$ and $W_v$.
+
+**Input gradients:**
+$$
+\frac{\partial L}{\partial X} = \frac{\partial L}{\partial Q} \cdot W_q^T + \frac{\partial L}{\partial K} \cdot W_k^T + \frac{\partial L}{\partial V} \cdot W_v^T
+$$
+
+## Complete Implementation
+
+The Python script `scripts/11_grad_attention_embeddings.py` implements all of these steps accurately, including the softmax Jacobian. Here are the key numerical results:
 
 ```python
-dL/dX[0] = [ 0.0547, -0.0030,  0.0955,  0.0046,  0.0462,  0.0432, -0.0774,  0.0050,
-            -0.0185, -0.0332, -0.0331, -0.0252,  0.0164, -0.0005,  0.0077, -0.0495]
+# After backprop through all attention mechanisms:
+dL/dV[0][0] = [ 0.0421,  0.0808,  0.0449, -0.1398, -0.0372, -0.0140,  0.0050, -0.0203]
+
+# Gradients for weight matrices:
+dL/dW_q[0][0] = [ 0.0000,  0.0000, -0.0000, -0.0000,  0.0000,  0.0000,  0.0000,  0.0000]
+dL/dW_v[0][0] = [ 0.0046,  0.0108,  0.0023, -0.0220,  0.0018, -0.0064, -0.0009, -0.0015]
+
+# Final gradients flowing back to embeddings:
+dL/dX[0] = [-0.0346,  0.0085, -0.0320,  0.0154,  0.0032,  0.0038, -0.0417,  0.0222,
+             0.0074,  0.0124,  0.0262,  0.0289, -0.0004, -0.0058,  0.0050, -0.0377]
 ```
-
-These are the gradients flowing back to the input embeddings.
-
-## Attention Weight Gradients
-
-For the attention matrices ($W_q$, $W_k$, $W_v$, $W_o$), we'd compute gradients using outer products, similar to what we did for the FFN:
-
-$$
-\frac{\partial L}{\partial W_o} = \sum_{pos} \frac{\partial L}{\partial \text{output}[pos]} \otimes \text{concat}[pos]^T
-$$
-
-And similarly for $W_q$, $W_k$, and $W_v$.
-
-These gradients accumulate across all positions and all heads.
-
-## What We're Skipping
-
-In a full implementation, you'd also compute:
-
-1. **Gradients through attention scores**:
-   $$
-   \frac{\partial L}{\partial \text{scores}} = \frac{\partial L}{\partial \text{attention\_output}} \cdot V^T
-   $$
-
-2. **Gradients through softmax** (complex because each output depends on all inputs):
-   $$
-   \frac{\partial L}{\partial \text{scores\_pre\_softmax}} = \text{softmax\_backward}(\frac{\partial L}{\partial \text{scores}})
-   $$
-
-3. **Gradients through $QK^T$** (requires transpositions and careful indexing)
-
-4. **Gradients for queries and keys** from the scores
-
-5. **Handling the causal mask** (zeroing out gradients for masked positions)
-
-All of this is mathematically well-defined, but tedious to implement by hand.
-
-## The Practical Reality
-
-In real transformer training:
-- PyTorch's `nn.MultiheadAttention` handles all this automatically
-- Frameworks use optimized kernels (like FlashAttention) for efficiency
-- Gradients are computed in a single backward pass using autograd
-
-You don't write attention backprop by hand. You use tools that do it correctly and efficiently.
-
-## What We've Computed
-
-With our simplified approach, we've computed:
-
-1. ✅ $\frac{\partial L}{\partial X}$ — gradients flowing back to embeddings
-2. ✅ (Simplified) $\frac{\partial L}{\partial W_o}$ — gradients for output projection weights
-3. ✅ (Placeholder) Gradients for $W_q$, $W_k$, $W_v$
-
-This is enough to understand the flow of gradients through attention, even if we're not computing every intermediate step by hand.
 
 ## The Takeaway
 
-Attention backpropagation is complex. Really complex.
+Attention backpropagation is complex, but it's **completely computable** using the chain rule systematically applied through each operation.
 
-But the **principle** is the same as everywhere else: apply the chain rule, backpropagate through each operation, accumulate gradients.
+The key insights:
 
-The math gets messy, but the process is systematic.
+1. **Softmax Jacobian** is the most complex part, creating dependencies between all positions in each row
+2. **Matrix multiplications** backprop cleanly using transposes and outer products
+3. **Causal mask** blocks gradient flow to future positions
+4. **Everything compounds** through multiple heads and positions
 
-In practice, you rely on frameworks to handle this correctly. What matters is understanding:
-- Gradients flow backward through the same operations as the forward pass
-- Each operation has a well-defined gradient
-- The chain rule connects everything
-
-You don't need to compute attention gradients by hand to use transformers effectively. But it's good to know they exist and that they're computable.
+We've now computed the **complete, accurate gradients** for attention, with no approximations. This is exactly what PyTorch's autograd computes internally (though with more efficient implementations).
 
 ## What's Next
 
