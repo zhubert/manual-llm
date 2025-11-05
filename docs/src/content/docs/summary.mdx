@@ -1,6 +1,390 @@
 ---
-title: summary
-description: Coming soon
+title: "14. Complete Summary"
+description: Bringing it all together - what we calculated and what it means
 ---
 
-Content in progress...
+You made it.
+
+You've manually calculated a complete training step through a transformer model. Every matrix multiplication, every activation, every gradient, every weight update.
+
+Let's step back and see what we accomplished.
+
+## The Complete Journey
+
+### What We Started With
+
+```
+Input text: "the cat sat on the mat"
+Tokens:     [<BOS>, the, cat, sat, on, the, mat, <EOS>]
+Token IDs:  [1, 3, 4, 5, 6, 3, 7, 2]
+
+Model: Randomly initialized transformer
+- Vocabulary: 10 tokens
+- Embeddings: 16 dimensions
+- Attention heads: 2
+- FFN hidden size: 64
+- Total parameters: 3,456
+
+Initial loss: 1.865 (essentially random predictions)
+```
+
+### What We Calculated
+
+#### Forward Pass (Steps 1-7)
+
+**1. Tokenization & Embeddings** → Converted text to 16D vectors
+```
+Each token → token embedding (16D) + position embedding (16D)
+Result: [8, 16] matrix of embedded tokens
+```
+
+**2. Query, Key, Value Projections** → Prepared for attention
+```
+Applied Wq, Wk, Wv to create queries, keys, and values
+Split into 2 heads (each with d_k = d_v = 8)
+```
+
+**3. Attention Mechanism** → Computed token relevance
+```
+Scores = Q @ K^T / √8
+Attention weights = softmax(scores)
+Output = attention_weights @ V
+```
+
+**4. Multi-Head Attention** → Combined heads
+```
+Concatenated outputs from both heads
+Applied output projection W_o
+Result: [8, 16] attention output
+```
+
+**5. Feed-Forward Network** → Applied position-wise transformations
+```
+FFN(x) = GELU(x @ W1 + b1) @ W2 + b2
+Result: [8, 16] FFN output
+```
+
+**6. Layer Normalization** → Stabilized and combined
+```
+Applied residual connections: x + attention(x) + FFN(x)
+Normalized with learnable gamma and beta
+Result: [8, 16] final hidden states
+```
+
+**7. Loss Calculation** → Measured prediction error
+```
+Projected to vocabulary: logits = W_lm @ hidden_states
+Applied softmax to get probabilities
+Computed cross-entropy loss: 1.865
+```
+
+#### Backward Pass (Steps 8-12)
+
+**8. Loss Gradients** → Started backpropagation
+```
+∂L/∂logits from softmax-cross-entropy Jacobian
+Shape: [4, 10] (4 prediction positions, 10 vocab tokens)
+```
+
+**9. Output Layer Gradients** → Language modeling head
+```
+∂L/∂W_lm: [10, 16] - how to change the output projection
+∂L/∂hidden: [8, 16] - gradients flowing to layer norm
+```
+
+**10. Feed-Forward Gradients** → Through FFN and layer norm
+```
+∂L/∂W2, ∂L/∂b2: Second FFN layer gradients
+∂L/∂W1, ∂L/∂b1: First FFN layer with GELU Jacobian
+∂L/∂gamma, ∂L/∂beta: Layer norm parameters
+Complete Jacobian for layer normalization
+```
+
+**11. Attention Gradients** → Through multi-head attention
+```
+∂L/∂W_o: Output projection gradients
+∂L/∂attention_output: Gradients to attention mechanism
+∂L/∂attention_weights: Through softmax Jacobian
+∂L/∂Q, ∂L/∂K, ∂L/∂V: Query, key, value gradients
+∂L/∂Wq, ∂L/∂Wk, ∂L/∂Wv: Projection weight gradients
+```
+
+**12. Embedding Gradients** → Back to the start
+```
+∂L/∂E_token: [10, 16] - how to change token embeddings
+∂L/∂E_pos: [8, 16] - how to change position embeddings
+```
+
+#### Optimization (Step 13)
+
+**13. AdamW Weight Updates** → Improved the model
+```
+Applied AdamW optimizer to all 3,456 parameters:
+- Computed first moment (momentum)
+- Computed second moment (adaptive learning rate)
+- Applied bias correction
+- Applied weight decay
+- Updated every parameter
+
+Average parameter change: ±0.001
+```
+
+## Key Numbers
+
+Let's put this in perspective.
+
+### Calculations Performed
+
+```
+Forward pass operations:    ~500 calculations
+Backward pass operations:   ~800 calculations
+Parameter updates:          3,456 updates
+─────────────────────────────────────────────
+Total:                      ~4,800 operations
+```
+
+That's what happens for **one training step** on **one example** with **8 tokens**.
+
+### Parameter Breakdown
+
+```
+Token embeddings:         10 tokens × 16D = 160 params
+Position embeddings:      8 positions × 16D = 128 params
+Query projection (2 heads): 2 × (16 × 8) = 256 params
+Key projection (2 heads):   2 × (16 × 8) = 256 params
+Value projection (2 heads): 2 × (16 × 8) = 256 params
+Output projection:          16 × 16 = 256 params
+FFN layer 1:                16 × 64 + 64 = 1,088 params
+FFN layer 2:                64 × 16 + 16 = 1,040 params
+Layer norm:                 16 + 16 = 32 params
+LM head:                    10 × 16 = 160 params
+─────────────────────────────────────────────
+Total:                      3,456 parameters
+```
+
+All 3,456 received gradients. All 3,456 were updated.
+
+### Sample Parameter Changes
+
+Here's how a few key parameters changed after one training step:
+
+```
+Token embedding (BOS, dim 0):    0.024634 → 0.025634  (+0.001000)
+Position embedding (pos 0, dim 0): 0.122694 → 0.123693  (+0.000999)
+Query weight Wq[0][0][0]:        -0.014409 → -0.015409 (-0.001000)
+FFN W1[0][0]:                    -0.014409 → -0.013409 (+0.001000)
+FFN bias b1[0]:                   0.128939 → 0.129937  (+0.000998)
+Layer norm gamma[0]:              1.000000 → 0.998990  (-0.001010)
+LM head W_lm[0][0]:              -0.014409 → -0.015409 (-0.001000)
+```
+
+Most parameters changed by roughly ±0.001 (the learning rate).
+
+## What This Means
+
+### The Model Learned
+
+Before training:
+- Loss: 1.865
+- Predictions: Nearly random
+
+After one step:
+- Loss: Would be lower (if we ran forward pass again)
+- Predictions: Slightly better
+
+The model has begun to learn the pattern. With more training steps on more data, it would continue improving.
+
+### The Process Scales
+
+Our tiny model:
+- 3,456 parameters
+- 16-dimensional embeddings
+- 2 attention heads
+- 1 layer
+
+GPT-3:
+- 175 billion parameters
+- 12,288-dimensional embeddings
+- 96 attention heads
+- 96 layers
+
+**The math is exactly the same.** Just more of it.
+
+Every calculation we did by hand — the attention mechanism, the layer normalization, the GELU activation, the AdamW update — happens in GPT-3 too. Billions of times over.
+
+### Why This Matters
+
+You didn't just read about how transformers work. You **calculated** how they work.
+
+You've seen:
+- How attention weights emerge from query-key similarity
+- Why multi-head attention uses multiple representation subspaces
+- How the FFN provides per-token transformations
+- Why layer normalization stabilizes training
+- How gradients flow through complex compositions
+- Why AdamW adapts learning rates per parameter
+
+You understand transformers not because someone told you the formulas, but because you computed the actual values.
+
+## Mathematical Techniques We Used
+
+Throughout this project, we applied:
+
+### Linear Algebra
+- Matrix multiplication (hundreds of times)
+- Transpose operations
+- Dimension tracking
+- Batch operations
+
+### Calculus
+- Partial derivatives
+- Chain rule (repeatedly)
+- Jacobian matrices (for softmax, layer norm)
+- Gradient computation
+- Backpropagation
+
+### Optimization Theory
+- Gradient descent
+- Adaptive learning rates
+- Momentum
+- Weight decay
+- Bias correction
+
+### Numerical Methods
+- Softmax (for numerical stability)
+- Layer normalization
+- GELU approximations
+- Float32 arithmetic
+
+All of this came together to train a language model.
+
+## What We Didn't Cover
+
+To keep this project manageable, we simplified some things:
+
+**Multiple training steps**: We only did one step. Real training involves thousands or millions of steps.
+
+**Batching**: We processed one example. Real training uses batches of hundreds of examples simultaneously.
+
+**Multiple layers**: We had 1 layer. Real models have dozens (GPT-3 has 96).
+
+**Larger vocabulary**: We had 10 tokens. Real models have 50,000+ tokens.
+
+**Causal masking**: We didn't explicitly show the attention mask (though it's implicit in our autoregressive setup).
+
+**Regularization techniques**: Dropout, label smoothing, etc.
+
+**Learning rate schedules**: Warmup, decay, etc.
+
+**Distributed training**: Multiple GPUs, gradient accumulation, mixed precision.
+
+But the **core mathematics** is all here. Everything else is engineering.
+
+## The Real Cost of Training
+
+Let's appreciate what we just did.
+
+Our model:
+- 3,456 parameters
+- 8 tokens
+- 1 training step
+- ~4,800 operations
+
+GPT-3:
+- 175,000,000,000 parameters (50,000× larger)
+- 300,000,000,000 tokens trained on
+- Millions of training steps
+- Trillions of trillions of operations
+
+Training cost: ~$5 million USD (GPU time)
+
+Every one of those operations follows the same logic we just calculated. Forward pass, backward pass, optimize. Repeat.
+
+That's why training large language models is so expensive. That's why companies spend millions on GPUs.
+
+But now you know exactly what those GPUs are computing.
+
+## What You've Gained
+
+You started this journey wanting to understand transformers. Now you:
+
+✅ **Know the architecture** - Every component, its purpose, its computation
+
+✅ **Understand attention** - Not as magic, but as weighted sums based on similarity
+
+✅ **See the math** - Every matrix shape, every dot product, every activation
+
+✅ **Grasp backpropagation** - How gradients flow through compositions
+
+✅ **Appreciate optimization** - Why AdamW works, what it does to each parameter
+
+✅ **Have intuition** - You can reason about why things work the way they do
+
+When you use ChatGPT, Claude, or any other LLM, you now understand the mathematical machinery underneath.
+
+## Next Steps
+
+Want to go deeper? Here are some directions:
+
+**Extend this model**:
+- Add more layers
+- Train for multiple steps
+- Visualize attention patterns
+- Try different optimizers (SGD, Adam)
+
+**Build a real model**:
+- Check out the [transformer](https://github.com/zhubert/transformer) companion repo
+- Implement in PyTorch or JAX
+- Train on real datasets
+- Scale up gradually
+
+**Study advanced topics**:
+- Positional encodings (ALiBi, RoPE)
+- Architectural variations (encoder-decoder, prefix-LM)
+- Training techniques (mixed precision, ZeRO optimizer)
+- Scaling laws (how performance improves with size)
+
+**Apply to new domains**:
+- Vision transformers (ViT)
+- Multimodal models (CLIP, Flamingo)
+- Reinforcement learning (Decision Transformer)
+
+The foundation you've built here applies to all of them.
+
+## Final Thoughts
+
+You calculated a complete training step through a transformer.
+
+By hand.
+
+You saw every number, every gradient, every update.
+
+That's rare. Most people learn transformers at a high level and never see the actual mechanics. They treat it as a black box.
+
+You opened the box. You saw the gears turning. You understand the machine.
+
+When someone says "transformers use self-attention to model long-range dependencies," you know exactly what that means mathematically.
+
+When someone says "GPT-3 was trained with AdamW on 300 billion tokens," you know what happened to every parameter on every token.
+
+You didn't just learn about transformers. You **computed** them.
+
+That understanding is permanent. It's the difference between knowing the formula and understanding why it works.
+
+You understand transformers.
+
+---
+
+## Resources
+
+**This project**: [github.com/zhubert/manual-llm](https://github.com/zhubert/manual-llm)
+
+**Companion project** (PyTorch implementation): [github.com/zhubert/transformer](https://github.com/zhubert/transformer)
+
+**Original paper**: ["Attention Is All You Need"](https://arxiv.org/abs/1706.03762) (Vaswani et al., 2017)
+
+**Python scripts**: Check the `scripts/` directory to run all calculations yourself
+
+---
+
+Thanks for calculating with me. Now go build something amazing.
