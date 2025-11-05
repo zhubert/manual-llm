@@ -1,4 +1,4 @@
-# Claude Context: Manual LLM Calculation Project
+# Claude Context: Attention to Detail - Manual Transformer Calculation Project
 
 ## Project Overview
 
