@@ -1,7 +1,10 @@
 [project]
-name = "long-hand-llm"
+name = "attention-to-detail"
 version = "0.1.0"
-description = "Manual calculation of a complete LLM training step"
+description = "Manual calculation of every step in training a tiny transformer model"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = []
+
+[dependency-groups]
+dev = []

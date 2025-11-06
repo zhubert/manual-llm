@@ -128,22 +128,20 @@ This project contains the **complete** training step calculation:
 - Each calculation step has a corresponding Python script
 - Scripts save intermediate values for verification
 - Deterministic initialization (fixed random seed)
-- NumPy-based for clarity and simplicity
+- Uses Python standard library for clarity and simplicity
 
 ## Prerequisites
 
 - Basic linear algebra (matrix multiplication, dot products)
 - Understanding of neural networks (forward/backward pass, gradients)
-- Familiarity with Python and NumPy (for running the scripts)
+- Familiarity with Python (for running the scripts)
 - Patience and curiosity!
 
 ## Running the Scripts
 
 ```bash
-# Install dependencies
-pip install numpy
-
 # Run any script to see the calculations
+# (No dependencies needed - uses Python standard library only)
 python scripts/01_embeddings.py
 python scripts/02_qkv.py
 # ... and so on

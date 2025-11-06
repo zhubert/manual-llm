@@ -42,7 +42,7 @@ npm run dev  # Start dev server at http://localhost:4321/
 
 All numerical calculations should be:
 - Shown step-by-step in the MDX documentation
-- Computed with Python/NumPy for accuracy
+- Computed with Python standard library for accuracy
 - Displayed as matrices/vectors with clear annotations
 - Explained with the mathematical reasoning
 
@@ -71,7 +71,7 @@ The project includes 12 complete Python scripts in `scripts/`:
 Each script:
 - Uses deterministic initialization (fixed random seed)
 - Loads intermediate values from previous steps
-- Performs all calculations with NumPy
+- Performs all calculations with Python standard library (math, random, pickle)
 - Saves results to `scripts/data/` for the next step
 - Prints key values and shapes for verification
 
