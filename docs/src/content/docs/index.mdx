@@ -21,7 +21,7 @@ You can read about attention mechanisms and backpropagation in a textbook. You c
 
 **This project calculates a complete training step through a transformer, by hand.**
 
-We're going to take the sentence "the cat sat on the mat" (6 tokens) through a tiny GPT-style model:
+We're going to take the sentence "I like transformers" (3 tokens, plus BOS and EOS markers for 5 total) through a tiny GPT-style model:
 - **Forward pass:** From raw text → embeddings → attention → feed-forward → loss (7 pages)
 - **Backward pass:** Computing gradients for every single parameter via backpropagation (5 pages)
 - **Optimization:** Applying AdamW updates with momentum and bias correction (1 page)
@@ -69,7 +69,7 @@ We're using a **GPT-style decoder-only transformer** - the same architecture fam
 | **d_ff** | 64 | Standard 4× expansion in feed-forward layer |
 | **vocab_size** | 10 | Our tiny vocabulary: "the", "cat", "sat", "on", "mat", etc. |
 | **num_layers** | 1 | One complete transformer block (you can extrapolate to N layers) |
-| **max_len** | 6 | Length of "the cat sat on the mat" |
+| **max_len** | 5 | Length of our sequence with BOS and EOS tokens |
 
 **Total parameters: ~2,600** (versus 175 billion for GPT-3)
 
