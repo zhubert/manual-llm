@@ -168,11 +168,11 @@ MIT
 ## Acknowledgments
 
 This project was inspired by:
-- **"Attention is All You Need"** (Vaswani et al., 2017) - The transformer architecture
-- **Andrej Karpathy's educational content** - Making neural networks accessible
+- **["Attention is All You Need"](https://arxiv.org/abs/1706.03762)** (Vaswani et al., 2017) - The transformer architecture
+- **[Andrej Karpathy's nanoGPT](https://github.com/karpathy/nanoGPT)** - Making neural networks accessible through clear, educational implementations
 - **The need to truly understand** - Moving beyond treating transformers as black boxes
 
-Special thanks to the mathematical rigor of academic papers that show every derivative, and to educational resources that prioritize understanding over implementation speed.
+Special thanks to the mathematical rigor of academic papers that show every derivative, and to educational resources like [The Annotated Transformer](https://nlp.seas.harvard.edu/annotated-transformer/) that prioritize understanding over implementation speed.
 
 ## What You'll Learn
 
