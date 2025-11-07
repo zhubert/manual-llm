@@ -2,6 +2,12 @@
 
 An educational project that manually calculates **every single step** of training a tiny transformer model, from tokenization to weight updates. All calculations are shown step-by-step with full mathematical derivations.
 
+## 📚 Read the Full Documentation
+
+**→ [https://zhubert.com/attention-to-detail/](https://zhubert.com/attention-to-detail/)**
+
+The complete step-by-step walkthrough with all calculations, visualizations, and mathematical derivations is available at the documentation site. This is the primary resource for learning from this project.
+
 ## What is this?
 
 This project walks through **every single calculation** in training a transformer-based language model:
