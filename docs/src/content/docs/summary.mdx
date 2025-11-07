@@ -138,7 +138,7 @@ Let's put this in perspective.
 ```
 Forward pass operations:    ~500 calculations
 Backward pass operations:   ~800 calculations
-Parameter updates:          3,456 updates
+Parameter updates:          2,456 updates
 ─────────────────────────────────────────────
 Total:                      ~4,800 operations
 ```
@@ -268,7 +268,7 @@ To keep this project manageable, we simplified some things:
 
 **Multiple layers**: We had 1 layer. Real models have dozens (GPT-3 has 96).
 
-**Larger vocabulary**: We had 10 tokens. Real models have 50,000+ tokens.
+**Larger vocabulary**: We had 6 tokens. Real models have 50,000+ tokens.
 
 **Causal masking**: We didn't explicitly show the attention mask (though it's implicit in our autoregressive setup).
 
@@ -403,7 +403,7 @@ loss = criterion(logits.view(-1, 6), targets.view(-1))  # ✓ Step 8
 loss.backward()  # ✓ Steps 9-12 (all gradients computed automatically!)
 
 # Optimization step
-optimizer.step()  # ✓ Step 13 (all 3,456 parameters updated)
+optimizer.step()  # ✓ Step 13 (all 2,456 parameters updated)
 optimizer.zero_grad()  # Reset gradients for next iteration
 
 print(f"Loss: {loss.item():.3f}")
