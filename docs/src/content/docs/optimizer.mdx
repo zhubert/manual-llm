@@ -260,7 +260,7 @@ Notice that most updates are around ±0.001. That's expected — at $t=1$, the b
 
 ## Update Statistics
 
-Our model has **3,456 total parameters**. All of them were updated.
+Our model has **2,456 total parameters**. All of them were updated.
 
 Here are the average absolute changes per parameter group:
 
@@ -335,7 +335,7 @@ We calculated — by hand — a complete training step through a transformer:
 
 - **296 forward pass calculations** (embeddings, attention, FFN, layer norm, loss)
 - **412 backward pass calculations** (gradients via chain rule and Jacobians)
-- **3,456 parameter updates** (via AdamW)
+- **2,456 parameter updates** (via AdamW)
 
 **Total: 4,164 individual calculations.**
 

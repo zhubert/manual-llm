@@ -67,7 +67,7 @@ We're using a **GPT-style decoder-only transformer** - the same architecture fam
 | **d_model** | 16 | Small enough to write out full matrices, large enough to be realistic |
 | **num_heads** | 2 | Multiple heads to show how multi-head attention combines (d_k = d_v = 8) |
 | **d_ff** | 64 | Standard 4× expansion in feed-forward layer |
-| **vocab_size** | 10 | Our tiny vocabulary: "the", "cat", "sat", "on", "mat", etc. |
+| **vocab_size** | 6 | Our tiny vocabulary: PAD, BOS, EOS, I, like, transformers |
 | **num_layers** | 1 | One complete transformer block (you can extrapolate to N layers) |
 | **max_len** | 5 | Length of our sequence with BOS and EOS tokens |
 

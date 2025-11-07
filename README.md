@@ -30,8 +30,8 @@ Our tiny transformer:
 - **Attention heads:** 2 (with d_k = d_v = 8)
 - **d_ff:** 64 (feed-forward hidden dimension)
 - **Layers:** 1 (single transformer block)
-- **Vocabulary:** 10 tokens
-- **Training text:** "the cat sat on the mat"
+- **Vocabulary:** 6 tokens (PAD, BOS, EOS, I, like, transformers)
+- **Training text:** "I like transformers" (5 tokens with BOS/EOS)
 
 ## Documentation
 

@@ -11,8 +11,8 @@ This is an educational project that manually calculates a complete training step
 - **num_heads:** 2 (attention heads with d_k = d_v = 8)
 - **d_ff:** 64 (feed-forward hidden dimension)
 - **num_layers:** 1 (single transformer block to keep manageable)
-- **vocab_size:** 10 tokens
-- **Training text:** "the cat sat on the mat" (6 tokens)
+- **vocab_size:** 6 tokens (PAD, BOS, EOS, I, like, transformers)
+- **Training text:** "I like transformers" (5 tokens total with BOS/EOS)
 - **Position encoding:** Learned embeddings
 
 ## Documentation Approach
